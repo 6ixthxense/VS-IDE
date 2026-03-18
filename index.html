@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VS-Monitor Ultimate</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    <style>
+        :root{--bg:#1e1e1e;--side:#252526;--acc:#007acc;--txt:#ccc;--wht:#fff;--bdr:#333}
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+        /* Titlebar */
+        .tbar{height:36px;background:#323233;display:flex;align-items:center;padding:0 12px;gap:10px;-webkit-app-region:drag;border-bottom:1px solid var(--bdr)}
+        .tbar .logo{font-weight:700;font-size:12px;color:var(--wht)}
+        .tbar .logo i{color:var(--acc);margin-right:6px}
+        .tbar .acts{margin-left:auto;display:flex;align-items:center;gap:6px;-webkit-app-region:no-drag}
+        .tbar select{background:#3c3c3c;color:var(--wht);border:1px solid #555;padding:3px 6px;border-radius:3px;font-size:11px;cursor:pointer}
+        .tbar .b{border:none;color:var(--wht);padding:4px 10px;border-radius:3px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px}
+        .tbar .b:hover{filter:brightness(1.2)}
+        .b-save{background:var(--acc)}
+        .b-run{background:#28a745}
+
+        /* Layout */
+        .wrap{display:flex;flex:1;overflow:hidden}
+
+        /* Sidebar */
+        .side{width:220px;background:var(--side);border-right:1px solid var(--bdr);display:flex;flex-direction:column;flex-shrink:0}
+        .side-h{padding:6px 10px;font-size:11px;font-weight:700;background:#1f1f1f;color:#888;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;justify-content:space-between}
+        .side-h .ib{display:flex;gap:4px}
+        .side-h .ib button{background:none;border:none;color:#777;cursor:pointer;padding:2px 4px;font-size:12px}
+        .side-h .ib button:hover{color:var(--wht)}
+        #ftree{flex:1;overflow-y:auto;padding:4px 0}
+        .fi{padding:3px 10px 3px 14px;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}
+        .fi:hover{background:#2a2d2e}
+        .fi.active{background:#37373d;color:var(--wht)}
+        .fi i{width:14px;text-align:center;flex-shrink:0}
+        .fi.dir i{color:#dcb67a}
+        .fi.file i{color:#519aba}
+
+        /* Editor */
+        .ed{flex:1;display:flex;flex-direction:column;min-width:0}
+        #editor{flex:1}
+
+        /* Right panel */
+        .rpan{width:280px;background:var(--side);border-left:1px solid var(--bdr);display:flex;flex-direction:column;flex-shrink:0}
+        .mpan{padding:10px;overflow-y:auto}
+        .mhdr{font-size:11px;font-weight:700;color:#666;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--bdr)}
+        .mc{background:#2a2a2b;padding:8px;border-radius:4px;margin-bottom:8px}
+        .ml{font-size:11px;display:flex;justify-content:space-between;margin-bottom:3px;color:#aaa}
+        .ml span:last-child{color:var(--wht);font-weight:600}
+        canvas{max-height:36px}
+        .dbg{background:#444;height:4px;border-radius:2px;margin-top:5px}
+        .dbf{background:#e0a800;height:100%;border-radius:2px;transition:width .3s}
+        .gpu{font-size:10px;color:#666;padding:4px 0}
+        .gpu i{margin-right:4px}
+
+        /* Terminal */
+        .twrap{height:200px;border-top:1px solid var(--bdr);display:flex;flex-direction:column;background:#000}
+        .thdr{padding:4px 10px;background:#1a1a1a;font-size:11px;color:#666;flex-shrink:0}
+        #term{flex:1;overflow:hidden}
+
+        /* Statusbar */
+        .sbar{height:22px;background:var(--acc);color:#fff;display:flex;align-items:center;font-size:11px;padding:0 10px;flex-shrink:0}
+        .sbar .sl{flex:1;display:flex;align-items:center;gap:8px}
+        .sbar .sr{display:flex;align-items:center;gap:10px}
+        .dot{width:7px;height:7px;border-radius:50%;background:#4caf50;display:inline-block;margin-right:3px}
+
+        /* Modal */
+        .mo{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;padding-top:120px;z-index:999}
+        .mo.show{display:flex}
+        .mb{background:#2d2d2d;border:1px solid #555;border-radius:6px;padding:16px;width:360px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+        .mb h3{margin:0 0 10px;font-size:13px;color:var(--wht)}
+        .mb input{width:100%;padding:6px 8px;background:#1e1e1e;border:1px solid #555;border-radius:3px;color:var(--wht);font-size:12px;outline:none;box-sizing:border-box}
+        .mb input:focus{border-color:var(--acc)}
+        .mbs{display:flex;justify-content:flex-end;gap:6px;margin-top:12px}
+        .mbs button{padding:4px 14px;border:none;border-radius:3px;font-size:11px;cursor:pointer}
+        .mbs .mc2{background:#555;color:#ccc}
+        .mbs .mo2{background:var(--acc);color:#fff}
+    </style>
+</head>
+<body>
+
+<div class="mo" id="dlg">
+    <div class="mb">
+        <h3><i class="fa-solid fa-file-circle-plus"></i> New File</h3>
+        <input type="text" id="dlg-input" placeholder="e.g. app.js, style.css" />
+        <div class="mbs">
+            <button class="mc2" id="dlg-no">Cancel</button>
+            <button class="mo2" id="dlg-yes">Create</button>
+        </div>
+    </div>
+</div>
+
+<div class="tbar">
+    <div class="logo"><i class="fa-solid fa-code"></i>VS-Monitor Ultimate</div>
+    <div class="acts">
+        <select id="lang"><option value="javascript">JavaScript</option><option value="python">Python</option></select>
+        <button class="b b-save" id="bsave"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+        <button class="b b-run" id="brun"><i class="fa-solid fa-play"></i> Run</button>
+    </div>
+</div>
+
+<div class="wrap">
+    <div class="side">
+        <div class="side-h">
+            <span>Explorer</span>
+            <div class="ib">
+                <button id="bnew" title="New File"><i class="fa-solid fa-file-circle-plus"></i></button>
+                <button id="bref" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
+            </div>
+        </div>
+        <div id="ftree"></div>
+    </div>
+    <div class="ed"><div id="editor"></div></div>
+    <div class="rpan">
+        <div class="mpan">
+            <div class="mhdr">SYSTEM MONITOR</div>
+            <div class="mc"><div class="ml"><span>CPU</span><span id="vcpu">0%</span></div><canvas id="ccpu"></canvas></div>
+            <div class="mc"><div class="ml"><span>RAM</span><span id="vram">0 / 0 GB</span></div><canvas id="cram"></canvas></div>
+            <div class="mc"><div class="ml"><span>DISK</span><span id="vdisk">0 / 0 GB</span></div><div class="dbg"><div class="dbf" id="dbar" style="width:0%"></div></div></div>
+            <div class="gpu"><i class="fa-solid fa-microchip"></i><span id="vgpu">N/A</span></div>
+        </div>
+        <div class="twrap"><div class="thdr">OUTPUT</div><div id="term"></div></div>
+    </div>
+</div>
+
+<div class="sbar">
+    <div class="sl"><span id="sfile"><i class="fa-solid fa-file"></i> No file open</span></div>
+    <div class="sr"><span id="scur">Ln 1, Col 1</span><span><span class="dot"></span>Ready</span></div>
+</div>
+
+<script>
+// ipcRenderer is exposed by preload.js
+var ipc = window.ipcRenderer;
+var curFile = null;
+var wsPath = null;
+
+// ===== TERMINAL =====
+var term = new Terminal({
+    theme: { background: '#000', foreground: '#e0e0e0', cursor: '#fff' },
+    fontSize: 12, lineHeight: 1.2, convertEol: true, cursorBlink: true
+});
+term.open(document.getElementById('term'));
+term.write('\x1b[90m[Terminal Ready]\x1b[0m\r\n');
+
+ipc.on('terminal-out', function(_, d) { term.write(d); });
+
+// ===== MONACO =====
+require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+require(['vs/editor/editor.main'], function() {
+    window.editor = monaco.editor.create(document.getElementById('editor'), {
+        value: "// Welcome to VS-Monitor Ultimate!\n// Open a file from Explorer or start coding here\n\nconsole.log('Hello World!');",
+        language: 'javascript', theme: 'vs-dark', automaticLayout: true,
+        minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false
+    });
+
+    window.editor.onDidChangeCursorPosition(function(e) {
+        document.getElementById('scur').textContent = 'Ln ' + e.position.lineNumber + ', Col ' + e.position.column;
+    });
+
+    document.getElementById('lang').addEventListener('change', function(e) {
+        monaco.editor.setModelLanguage(window.editor.getModel(), e.target.value);
+    });
+
+    // Load workspace
+    ipc.invoke('get-workspace').then(function(p) {
+        wsPath = p;
+        refreshTree();
+    });
+});
+
+// ===== FILE TREE =====
+function refreshTree() {
+    ipc.invoke('read-dir', wsPath).then(function(files) {
+        var tree = document.getElementById('ftree');
+        tree.innerHTML = '';
+        for (var i = 0; i < files.length; i++) {
+            addTreeItem(tree, files[i]);
+        }
+    });
+}
+
+function addTreeItem(tree, f) {
+    var el = document.createElement('div');
+    el.className = 'fi ' + (f.isDirectory ? 'dir' : 'file');
+    el.innerHTML = '<i class="fa-solid ' + (f.isDirectory ? 'fa-folder' : 'fa-file-code') + '"></i><span>' + f.name + '</span>';
+    if (!f.isDirectory) {
+        el.addEventListener('click', function() { openFile(f.path, el); });
+    }
+    tree.appendChild(el);
+}
+
+function openFile(fp, el) {
+    var items = document.querySelectorAll('.fi');
+    for (var i = 0; i < items.length; i++) items[i].classList.remove('active');
+    if (el) el.classList.add('active');
+
+    ipc.invoke('read-file', fp).then(function(txt) {
+        window.editor.setValue(txt);
+        curFile = fp;
+        var nm = fp.replace(/\\/g, '/').split('/').pop();
+        document.getElementById('sfile').innerHTML = '<i class="fa-solid fa-file-lines"></i> ' + nm;
+
+        var ext = nm.split('.').pop().toLowerCase();
+        var map = { js:'javascript', py:'python', json:'json', html:'html', css:'css', ts:'typescript', md:'markdown' };
+        var lang = map[ext] || 'plaintext';
+        monaco.editor.setModelLanguage(window.editor.getModel(), lang);
+        document.getElementById('lang').value = (lang === 'python') ? 'python' : 'javascript';
+    });
+}
+
+// ===== SAVE =====
+function doSave() {
+    if (!curFile) { term.write('\x1b[33m[No file open]\x1b[0m\r\n'); return; }
+    var nm = curFile.replace(/\\/g, '/').split('/').pop();
+    ipc.invoke('save-file', { filePath: curFile, content: window.editor.getValue() }).then(function(ok) {
+        term.write(ok ? '\x1b[32mSaved: ' + nm + '\x1b[0m\r\n' : '\x1b[31mFailed to save\x1b[0m\r\n');
+    });
+}
+
+// ===== RUN =====
+function doRun() {
+    term.clear();
+    term.write('\x1b[90m[Running...]\x1b[0m\r\n');
+    ipc.send('run-code', { code: window.editor.getValue(), language: document.getElementById('lang').value });
+}
+
+// ===== NEW FILE MODAL =====
+var dlg = document.getElementById('dlg');
+var dlgIn = document.getElementById('dlg-input');
+
+function showDlg() { dlgIn.value = ''; dlg.classList.add('show'); setTimeout(function(){ dlgIn.focus(); }, 100); }
+function hideDlg() { dlg.classList.remove('show'); }
+function doNewFile() {
+    var nm = dlgIn.value.trim();
+    if (!nm) return;
+    hideDlg();
+    ipc.invoke('create-file', { dirPath: wsPath, fileName: nm }).then(function(r) {
+        if (r.success) {
+            term.write('\x1b[32mCreated: ' + nm + '\x1b[0m\r\n');
+            refreshTree();
+            setTimeout(function() { openFile(r.path, null); }, 200);
+        } else {
+            term.write('\x1b[31m' + r.error + '\x1b[0m\r\n');
+        }
+    });
+}
+
+document.getElementById('dlg-no').addEventListener('click', hideDlg);
+document.getElementById('dlg-yes').addEventListener('click', doNewFile);
+dlg.addEventListener('click', function(e) { if (e.target === dlg) hideDlg(); });
+dlgIn.addEventListener('keydown', function(e) { if (e.key === 'Enter') doNewFile(); if (e.key === 'Escape') hideDlg(); });
+
+// ===== BUTTONS =====
+document.getElementById('bsave').addEventListener('click', doSave);
+document.getElementById('brun').addEventListener('click', doRun);
+document.getElementById('bnew').addEventListener('click', showDlg);
+document.getElementById('bref').addEventListener('click', refreshTree);
+
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'r') { e.preventDefault(); doRun(); }
+});
+
+// ===== CHARTS =====
+function mk(id, c) {
+    return new Chart(document.getElementById(id), {
+        type: 'line',
+        data: { labels: Array(20).fill(''), datasets: [{ data: Array(20).fill(0), borderColor: c, borderWidth: 1.5, fill: true, backgroundColor: c + '15', tension: 0.4, pointRadius: 0 }] },
+        options: { animation: false, scales: { y: { display: false, min: 0, max: 100 }, x: { display: false } }, plugins: { legend: { display: false } } }
+    });
+}
+var cc = mk('ccpu', '#007acc');
+var cr = mk('cram', '#32a852');
+
+ipc.on('sys-stats', function(_, s) {
+    cc.data.datasets[0].data.push(parseFloat(s.cpu)); cc.data.datasets[0].data.shift(); cc.update('none');
+    document.getElementById('vcpu').textContent = s.cpu + '%';
+    cr.data.datasets[0].data.push(parseFloat(s.ram)); cr.data.datasets[0].data.shift(); cr.update('none');
+    document.getElementById('vram').textContent = s.ramText;
+    if (s.disk) {
+        document.getElementById('vdisk').textContent = s.disk.used + ' / ' + s.disk.size + ' GB';
+        document.getElementById('dbar').style.width = s.disk.use + '%';
+    }
+    document.getElementById('vgpu').textContent = s.gpuName;
+});
+</script>
+</body>
+</html>
