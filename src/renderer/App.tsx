@@ -118,6 +118,11 @@ export default function App() {
     useWorkspaceStore.getState().init()
   }, [])
 
+  const wordWrap = useConfigStore((s) => s.wordWrap)
+  const lineNumbers = useConfigStore((s) => s.lineNumbers)
+  const autoSave = useConfigStore((s) => s.autoSave)
+  const tabSize = useConfigStore((s) => s.tabSize)
+
   useEffect(() => {
     applyAppearanceConfig({
       theme,
@@ -126,8 +131,12 @@ export default function App() {
       fontSize,
       terminalFontSize,
       fontFamily,
+      wordWrap,
+      lineNumbers,
+      autoSave,
+      tabSize,
     })
-  }, [accent, accentGradient, fontFamily, fontSize, terminalFontSize, theme])
+  }, [accent, accentGradient, fontFamily, fontSize, terminalFontSize, theme, wordWrap, lineNumbers, autoSave, tabSize])
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -215,16 +224,17 @@ export default function App() {
           <Suspense fallback={<PanelLoading label="Loading editor..." />}>
             <EditorPane />
           </Suspense>
-          {showTerminal && (
-            <>
-              <Resizer direction="vertical" onResize={handleTerminalResize} onResizeEnd={saveTerminalHeight} />
-              <div style={{ height: terminalHeight, flexShrink: 0 }}>
-                <Suspense fallback={<PanelLoading label="Loading terminal..." />}>
-                  <TerminalPanel />
-                </Suspense>
-              </div>
-            </>
-          )}
+          <div className="terminal-wrapper" style={{ 
+            height: terminalHeight, 
+            flexShrink: 0,
+            display: showTerminal ? 'flex' : 'none',
+            flexDirection: 'column'
+          }}>
+            <Resizer direction="vertical" onResize={handleTerminalResize} onResizeEnd={saveTerminalHeight} />
+            <Suspense fallback={<PanelLoading label="Loading terminal..." />}>
+              <TerminalPanel />
+            </Suspense>
+          </div>
         </div>
 
         {showSysMonitor && (

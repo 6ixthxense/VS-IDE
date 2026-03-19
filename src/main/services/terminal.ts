@@ -27,7 +27,7 @@ export class TerminalService {
         cols: 80,
         rows: 24,
         cwd: rootPath,
-        env: process.env as any
+        env: process.env as any, useConpty: false
       })
 
       ptyProcess.onData((data) => {

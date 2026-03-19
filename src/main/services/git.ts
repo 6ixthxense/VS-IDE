@@ -19,7 +19,10 @@ export async function getGitStatus(rootPath: string): Promise<GitStatus> {
 
     return result
   } catch (e) {
-    console.error('Git status error:', e)
+    const message = (e as Error).message || ''
+    if (!message.includes('not a git repository')) {
+      console.error('Git status error:', e)
+    }
     return {}
   }
 }

@@ -1,10 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { spawn } from 'child_process'
+import { ChildProcess, spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { IPC } from '../../shared/constants/index'
 import type { RunCodePayload } from '../../shared/types/ipc'
 import { TerminalService } from '../services/terminal'
+
+// Track active processes and their input buffers for each terminal to route input correctly
+const activeRuns = new Map<string, ChildProcess>()
+const inputBuffers = new Map<string, string>()
 
 function sendTerminalOutput(id: string, data: string) {
   BrowserWindow.getAllWindows().forEach((win) => {
@@ -23,7 +27,47 @@ export function registerTerminalHandlers() {
   TerminalService.getInstance().init()
 
   ipcMain.on('terminal:input', (_event, id: string, data: string) => {
-    TerminalService.getInstance().write(id, data)
+    const activeRun = activeRuns.get(id)
+    if (activeRun && activeRun.stdin && !activeRun.killed) {
+      const buffer = inputBuffers.get(id) || ''
+      
+      if (data === '\r') {
+        // Enter: Send current line buffer to process
+        sendTerminalOutput(id, '\r\n')
+        activeRun.stdin.write(buffer + '\n')
+        inputBuffers.set(id, '')
+      } else if (data === '\x7f' || data === '\x08') {
+        // Backspace: Remove from local buffer only
+        if (buffer.length > 0) {
+          inputBuffers.set(id, buffer.slice(0, -1))
+          sendTerminalOutput(id, '\b \b')
+        }
+      } else if (data === '\x03') {
+        // Ctrl+C: Send interrupt and kill process
+        inputBuffers.set(id, '')
+        console.log(`[Run:${id}] Ctrl+C received`)
+        sendTerminalOutput(id, '^C\r\n')
+        activeRun.kill('SIGINT')
+      } else if (data === '\x1a' || data === '\x04') {
+        // Ctrl+Z or Ctrl+D: Send remaining buffer then close stdin
+        const char = data === '\x1a' ? '^Z' : '^D'
+        if (buffer.length > 0) {
+          activeRun.stdin.write(buffer)
+          inputBuffers.set(id, '')
+        }
+        console.log(`[Run:${id}] ${char} received, closing stdin`)
+        sendTerminalOutput(id, `${char}\r\n`)
+        activeRun.stdin.end()
+      } else {
+        // Regular character: Add to local buffer and echo to UI
+        // Note: We only echo when we buffer, so the user sees what they type
+        inputBuffers.set(id, buffer + data)
+        sendTerminalOutput(id, data)
+      }
+    } else {
+      // Route input to the main PTY (PowerShell/Bash)
+      TerminalService.getInstance().write(id, data)
+    }
   })
 
   ipcMain.on('terminal:resize', (_event, id: string, cols: number, rows: number) => {
@@ -40,6 +84,9 @@ export function registerTerminalHandlers() {
 
   ipcMain.on('terminal:close', (_event, id: string) => {
     TerminalService.getInstance().closeTerminal(id)
+    // Kill any active run for this terminal
+    const run = activeRuns.get(id)
+    if (run) run.kill()
   })
 
   ipcMain.on(IPC.RUN_CODE, (_event, data: RunCodePayload) => {
@@ -50,20 +97,31 @@ export function registerTerminalHandlers() {
     const tempDir = path.join(app.getPath('temp'), 'vs-monitor-ide')
     const tmpFile = path.join(tempDir, `_temp_run_${Date.now()}${ext}`)
 
+    // Kill existing run if any
+    const existing = activeRuns.get(terminalId)
+    if (existing) {
+      existing.kill()
+      inputBuffers.delete(terminalId)
+    }
+
     try {
-      fs.mkdirSync(tempDir, { recursive: true })
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true })
+      }
       fs.writeFileSync(tmpFile, data.code)
 
       // 1. Send beautiful header
       sendTerminalOutput(terminalId, `\r\n\x1b[33m[Running] ${cmd} ${path.basename(tmpFile)}\x1b[0m\r\n`)
 
-      // 2. Spawn process
-      // Use unbuffered output for python if possible
+      // 2. Spawn process with piped input
       const args = isPython ? ['-u', tmpFile] : [tmpFile]
       const child = spawn(cmd, args, {
         cwd: path.dirname(tmpFile),
-        env: { ...process.env, PYTHONIOENCODING: 'utf8' }
+        env: { ...process.env, PYTHONIOENCODING: 'utf8' },
+        shell: process.platform === 'win32' // Use shell on Windows to find command better
       })
+
+      activeRuns.set(terminalId, child)
 
       child.stdout.on('data', (chunk) => {
         sendTerminalOutput(terminalId, chunk.toString().replace(/\n/g, '\r\n'))
@@ -74,17 +132,23 @@ export function registerTerminalHandlers() {
       })
 
       child.on('close', (code) => {
+        if (activeRuns.get(terminalId) === child) {
+          activeRuns.delete(terminalId)
+          inputBuffers.delete(terminalId)
+        }
         sendTerminalOutput(terminalId, `\r\n\x1b[32m[Done] exited with code ${code}\x1b[0m\r\n`)
         cleanupTempFile(tmpFile)
       })
 
       child.on('error', (err) => {
+        if (activeRuns.get(terminalId) === child) {
+          activeRuns.delete(terminalId)
+        }
         sendTerminalOutput(terminalId, `\r\n\x1b[31m[Execute Error: ${err.message}]\x1b[0m\r\n`)
         cleanupTempFile(tmpFile)
       })
 
     } catch (err: unknown) {
-      cleanupTempFile(tmpFile)
       sendTerminalOutput(terminalId, `\r\n\x1b[31m[Run Error: ${(err as Error).message}]\x1b[0m\r\n`)
     }
   })

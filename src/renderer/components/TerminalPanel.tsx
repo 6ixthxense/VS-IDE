@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/editorStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useConfigStore } from '../store/configStore'
 import type { ThemeName } from '../config/appearance'
+import { useUiStore } from '../store/uiStore'
 
 interface TerminalSession {
   term: Terminal
@@ -123,17 +124,24 @@ export function TerminalPanel() {
   const accent = useConfigStore((s) => s.accent)
   const fontFamily = useConfigStore((s) => s.fontFamily)
   const terminalFontSize = useConfigStore((s) => s.terminalFontSize)
+  const showTerminal = useUiStore((s) => s.showTerminal)
 
   useEffect(() => {
     // Only manage active terminal visibility
     termsRef.current.forEach((val, id) => {
       const el = document.getElementById(`terminal-${id}`)
       if (el) {
-        el.style.display = id === activeId ? 'block' : 'none'
-        if (id === activeId) val.fit.fit()
+        const isActive = id === activeId
+        el.style.display = isActive ? 'block' : 'none'
+        if (isActive && showTerminal) {
+          setTimeout(() => {
+            val.fit.fit()
+            val.term.focus()
+          }, 100)
+        }
       }
     })
-  }, [activeId, terminals])
+  }, [activeId, showTerminal, terminals])
 
   useEffect(() => {
     const setupTerminal = (id: string) => {
@@ -154,7 +162,9 @@ export function TerminalPanel() {
       container.id = `terminal-${id}`
       container.className = 'terminal-instance'
       container.style.height = '100%'
-      container.style.display = 'none'
+      const isActive = id === activeId
+      container.style.display = isActive ? 'block' : 'none'
+      if (isActive) setTimeout(() => fit.fit(), 100)
       termContainerRef.current?.appendChild(container)
       
       term.open(container)
@@ -250,7 +260,14 @@ export function TerminalPanel() {
   const handleRun = () => {
     const tab = getActiveTab()
     if (!tab) return
-    termsRef.current.get(activeId)?.term.clear()
+    
+    const session = termsRef.current.get(activeId)
+    if (session) {
+      session.term.clear()
+      session.term.focus()
+      session.fit.fit()
+    }
+    
     window.electronAPI.runCode({
       terminalId: activeId,
       code: tab.content,
