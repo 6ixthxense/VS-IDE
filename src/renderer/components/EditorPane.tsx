@@ -27,6 +27,40 @@ const Breadcrumbs = React.memo(({ parts }: { parts: string[] }) => (
   </div>
 ))
 
+function EditorAttentionBanner({ groupId }: { groupId: string }) {
+  const getActiveTab = useEditorStore((state) => state.getActiveTab)
+  const dismissTabRecovery = useEditorStore((state) => state.dismissTabRecovery)
+  const reloadTabFromDisk = useEditorStore((state) => state.reloadTabFromDisk)
+  const saveTab = useEditorStore((state) => state.saveTab)
+  const activeTab = getActiveTab(groupId)
+
+  if (!activeTab?.recoveryState) return null
+
+  const isConflict = activeTab.recoveryState === 'conflict'
+
+  return (
+    <div className={`editor-attention-banner ${isConflict ? 'conflict' : 'recovered'}`}>
+      <div className="editor-attention-copy">
+        <strong>{isConflict ? 'Disk conflict detected' : 'Recovered local edits'}</strong>
+        <span>{activeTab.recoveryMessage}</span>
+      </div>
+      <div className="editor-attention-actions">
+        <button type="button" onClick={() => dismissTabRecovery(activeTab.id)}>
+          {isConflict ? 'Keep Local Draft' : 'Keep Editing'}
+        </button>
+        <button type="button" onClick={() => { void reloadTabFromDisk(activeTab.id) }}>
+          Reload Disk
+        </button>
+        {isConflict && (
+          <button type="button" className="primary" onClick={() => { void saveTab(activeTab.id) }}>
+            Save Anyway
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function EditorContent({ groupId }: { groupId: string }) {
   const getActiveTab = useEditorStore((s) => s.getActiveTab)
   const rootPath = useWorkspaceStore((s) => s.rootPath)
@@ -36,6 +70,7 @@ function EditorContent({ groupId }: { groupId: string }) {
   const splitGroup = useEditorStore((s) => s.splitGroup)
   const closeGroup = useEditorStore((s) => s.closeGroup)
   const groupsCount = useEditorStore((s) => s.groups.length)
+  const showSidebarView = useUiStore((s) => s.showSidebarView)
   const activeTab = getActiveTab(groupId)
 
   if (!activeTab) {
@@ -69,13 +104,13 @@ function EditorContent({ groupId }: { groupId: string }) {
                   </button>
                   <button
                     className="welcome-secondary-btn"
-                    onClick={() => useUiStore.setState({ activeSidebarView: 'search', showSidebar: true })}
+                    onClick={() => showSidebarView('search')}
                   >
                     <i className="fa-solid fa-magnifying-glass"></i> Search in Files
                   </button>
                   <button
                     className="welcome-secondary-btn"
-                    onClick={() => useUiStore.setState({ activeSidebarView: 'explorer', showSidebar: true })}
+                    onClick={() => showSidebarView('explorer')}
                   >
                     <i className="fa-solid fa-folder-tree"></i> Show Explorer
                   </button>
@@ -165,6 +200,7 @@ function EditorContent({ groupId }: { groupId: string }) {
         </div>
       </div>
       <Breadcrumbs parts={pathParts} />
+      <EditorAttentionBanner groupId={groupId} />
       <div className="editor-surface">
         <Suspense fallback={<div className="loading">Loading editor surface...</div>}>
           <CodeEditorSurface

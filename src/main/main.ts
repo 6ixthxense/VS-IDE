@@ -2,16 +2,23 @@ import { app, BrowserWindow, protocol } from 'electron'
 import si from 'systeminformation'
 import path from 'path'
 import { createWindow } from './services/window'
+import { registerAppHandlers } from './ipc/app'
 import { registerFileHandlers } from './ipc/file'
 import { registerWorkspaceHandlers } from './ipc/workspace'
 import { registerTerminalHandlers } from './ipc/terminal'
 import { buildSysStats } from './services/systemMonitor'
 import { workspaceFileIndex } from './services/fileIndex'
 import { IPC } from '../shared/constants/index'
+import { updateService } from './services/updater'
+import { diagnosticsService } from './services/diagnostics'
 
 let mainWindow: BrowserWindow | null = null
 const isDevelopment = process.env.NODE_ENV === 'development'
 let stopWorkspaceChangeBridge: (() => void) | null = null
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.vsmonitor.ide')
+}
 
 function isAllowedNavigation(url: string) {
   if (isDevelopment) {
@@ -90,6 +97,7 @@ protocol.registerSchemesAsPrivileged([
 
 app.whenReady().then(() => {
   const fs = require('fs')
+  diagnosticsService.info('main', 'Application startup complete.', isDevelopment ? 'Development mode' : 'Packaged mode')
 
   // Setup custom protocol handler
   protocol.handle('app', async (request) => {
@@ -121,6 +129,7 @@ app.whenReady().then(() => {
     } catch (err: any) {
       const logPath = path.join(app.getPath('userData'), 'protocol_error.txt')
       fs.appendFileSync(logPath, `Path: ${request.url}\nError: ${err.message}\n\n`)
+      diagnosticsService.error('protocol', 'Custom protocol request failed.', `${request.url}\n${err.message}`)
       return new Response('Protocol Error', { status: 500 })
     }
   })
@@ -128,9 +137,11 @@ app.whenReady().then(() => {
   registerFileHandlers()
   registerWorkspaceHandlers()
   registerTerminalHandlers()
+  registerAppHandlers()
   bridgeWorkspaceChanges()
 
   mainWindow = createWindow()
+  updateService.configure()
   startSysMonitor()
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -141,11 +152,35 @@ app.whenReady().then(() => {
 
   // Logger for renderer console errors
   mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    if (!isDevelopment) return
     const logPath = path.join(app.getPath('userData'), 'renderer_errors.txt')
     const logLine = `[Lvl:${level}] ${message} (at ${sourceId}:${line})\n`
     try { fs.appendFileSync(logPath, logLine) } catch {}
+    if (level >= 2 || isDevelopment) {
+      diagnosticsService.write(level >= 3 ? 'error' : level === 2 ? 'warning' : 'info', 'renderer', message, `${sourceId}:${line}`)
+    }
   })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    diagnosticsService.error('renderer', 'Renderer process exited unexpectedly.', JSON.stringify(details))
+  })
+
+  mainWindow.on('unresponsive', () => {
+    diagnosticsService.warn('main', 'Main window became unresponsive.')
+  })
+
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void updateService.checkForUpdates()
+    }, 3000)
+  }
+})
+
+process.on('uncaughtException', (error) => {
+  diagnosticsService.error('main', 'Uncaught exception.', error.stack || error.message)
+})
+
+process.on('unhandledRejection', (reason) => {
+  diagnosticsService.error('main', 'Unhandled promise rejection.', reason instanceof Error ? reason.stack || reason.message : String(reason))
 })
 
 app.on('window-all-closed', () => {

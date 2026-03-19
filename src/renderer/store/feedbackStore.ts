@@ -8,6 +8,7 @@ export interface ToastItem {
   message: string
   tone: ToastTone
   durationMs?: number
+  details?: string
 }
 
 export interface ConfirmOptions {
@@ -82,8 +83,8 @@ export function showSuccessToast(message: string, title = 'Done') {
   return useFeedbackStore.getState().showToast({ title, message, tone: 'success' })
 }
 
-export function showErrorToast(message: string, title = 'Something went wrong') {
-  return useFeedbackStore.getState().showToast({ title, message, tone: 'error', durationMs: 5600 })
+export function showErrorToast(message: string, title = 'Something went wrong', details?: string) {
+  return useFeedbackStore.getState().showToast({ title, message, tone: 'error', durationMs: 5600, details })
 }
 
 export function showInfoToast(message: string, title = 'Info') {

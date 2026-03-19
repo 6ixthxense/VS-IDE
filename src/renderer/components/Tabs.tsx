@@ -63,6 +63,15 @@ export function Tabs({ groupId }: { groupId: string }) {
                 style={{ color: getFileIconColor(tab.name), marginRight: '6px', fontSize: '13px' }}
               />
               {isDirty && <span className="tab-dirty" style={{ color: '#ff9900', marginRight: '4px' }}>●</span>}
+              {tab.recoveryState && (
+                <span
+                  className="tab-recovery-indicator"
+                  title={tab.recoveryMessage}
+                  style={{ color: tab.recoveryState === 'conflict' ? '#ff6b6b' : '#4fc3f7', marginRight: '4px' }}
+                >
+                  {tab.recoveryState === 'conflict' ? '!' : '↺'}
+                </span>
+              )}
               {tab.name}
             </span>
             <button

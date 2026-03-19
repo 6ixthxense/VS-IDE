@@ -1658,6 +1658,36 @@ kbd {
   gap: 12px; 
 }
 
+.status-left {
+  min-width: 0;
+}
+
+.status-right {
+  min-width: 0;
+  overflow: hidden;
+  justify-content: flex-end;
+}
+
+.status-right span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-link {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: inherit;
+  border-radius: 999px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.status-link:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .status-indicator {
   width: 8px;
   height: 8px;
@@ -2297,6 +2327,201 @@ kbd {
   overflow-y: auto;
 }
 
+.editor-attention-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--bdr);
+}
+
+.editor-attention-banner.recovered {
+  background: color-mix(in srgb, var(--acc) 14%, var(--bg-panel));
+}
+
+.editor-attention-banner.conflict {
+  background: color-mix(in srgb, var(--danger) 16%, var(--bg-panel));
+}
+
+.editor-attention-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.editor-attention-copy strong {
+  color: var(--txt-bright);
+  font-size: 12px;
+}
+
+.editor-attention-copy span {
+  color: var(--txt-dim);
+  font-size: 12px;
+}
+
+.editor-attention-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.editor-attention-actions button {
+  background: transparent;
+  border: 1px solid var(--bdr);
+  color: var(--txt);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.editor-attention-actions button.primary {
+  background: color-mix(in srgb, var(--acc) 24%, transparent);
+  border-color: color-mix(in srgb, var(--acc) 45%, var(--bdr));
+  color: var(--txt-bright);
+}
+
+.diagnostics-modal {
+  width: min(960px, calc(100vw - 48px));
+  max-height: min(86vh, 900px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.diagnostics-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.diagnostics-header p {
+  color: var(--txt-dim);
+  margin-top: 8px;
+}
+
+.diagnostics-chip {
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--acc) 18%, transparent);
+  color: var(--txt-bright);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.diagnostics-summary-card {
+  border: 1px solid var(--bdr);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-panel);
+}
+
+.diagnostics-summary-card span {
+  color: var(--txt-dim);
+  font-size: 11px;
+}
+
+.diagnostics-summary-card strong {
+  color: var(--txt-bright);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagnostics-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.diagnostics-toolbar button {
+  border: 1px solid var(--bdr);
+  background: var(--bg-panel);
+  color: var(--txt);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.diagnostics-toolbar button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.diagnostics-log-list {
+  min-height: 240px;
+  max-height: min(46vh, 460px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.diagnostics-empty {
+  border: 1px dashed var(--bdr);
+  border-radius: 12px;
+  padding: 18px;
+  color: var(--txt-dim);
+  text-align: center;
+}
+
+.diagnostics-entry {
+  border: 1px solid var(--bdr);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diagnostics-info {
+  border-color: color-mix(in srgb, var(--acc) 35%, var(--bdr));
+}
+
+.diagnostics-warning {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--bdr));
+}
+
+.diagnostics-error {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--bdr));
+}
+
+.diagnostics-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--txt-dim);
+  font-size: 11px;
+}
+
+.diagnostics-entry strong {
+  color: var(--txt-bright);
+  font-size: 13px;
+}
+
+.diagnostics-entry pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  color: var(--txt-dim);
+  font-size: 12px;
+}
+
 .settings-modal {
   width: min(920px, calc(100vw - 32px));
   max-height: min(88vh, 920px);
@@ -2804,6 +3029,43 @@ kbd {
   font-size: 12px;
   line-height: 1.5;
   color: var(--txt);
+}
+
+.toast-detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.toast-detail-btn {
+  border: 1px solid var(--bdr);
+  background: transparent;
+  color: var(--acc);
+  border-radius: 999px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.toast-detail-btn:hover {
+  background: color-mix(in srgb, var(--surface-1) 70%, var(--acc) 10%);
+  color: var(--txt-bright);
+}
+
+.toast-details {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-1) 86%, black 14%);
+  border: 1px solid var(--bdr);
+  color: var(--txt);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow: auto;
 }
 
 .toast-close {

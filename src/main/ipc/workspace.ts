@@ -4,8 +4,16 @@ import path from 'path'
 import { getGitDiff, getGitStatus, gitAdd, gitCommit, gitDiscard, gitPull, gitPush, gitUnstage } from '../services/git'
 import { workspaceService } from '../services/workspace'
 import { replaceInWorkspace, searchWorkspace } from '../services/search'
-import type { GitDiffRequest, SearchOptions } from '@shared/types/ipc'
+import type { GitDiffRequest, OperationResult, SearchOptions } from '@shared/types/ipc'
 import { workspaceFileIndex } from '../services/fileIndex'
+
+function failedOperation(error: unknown, fallback: string): OperationResult {
+  return {
+    success: false,
+    error: fallback,
+    details: error instanceof Error ? error.message : String(error),
+  }
+}
 
 export function registerWorkspaceHandlers() {
   ipcMain.handle(IPC.WORKSPACE_GET, () => {
@@ -18,7 +26,7 @@ export function registerWorkspaceHandlers() {
     return resolvedRootPath
   })
 
-  ipcMain.handle('ws:search-files', async (_, query: string, _rootPath: string, options?: Partial<SearchOptions>) => {
+  ipcMain.handle(IPC.WORKSPACE_SEARCH_FILES, async (_, query: string, _rootPath: string, options?: Partial<SearchOptions>) => {
     if (!query.trim()) return []
 
     try {
@@ -37,7 +45,7 @@ export function registerWorkspaceHandlers() {
   })
 
   ipcMain.handle(
-    'ws:replace-in-files',
+    IPC.WORKSPACE_REPLACE_IN_FILES,
     async (_,
       query: string,
       replacement: string,
@@ -67,16 +75,16 @@ export function registerWorkspaceHandlers() {
       )
 
       return gitAdd(rootPath, safeFilePaths)
-    } catch {
-      return false
+    } catch (error) {
+      return failedOperation(error, 'Unable to stage the selected changes')
     }
   })
 
   ipcMain.handle(IPC.GIT_COMMIT, async (_, _rootPath: string, message: string) => {
     try {
       return gitCommit(workspaceService.requireRootPath(), message)
-    } catch {
-      return false
+    } catch (error) {
+      return failedOperation(error, 'Commit failed')
     }
   })
 
@@ -85,8 +93,8 @@ export function registerWorkspaceHandlers() {
       const rootPath = workspaceService.requireRootPath()
       const safeFilePaths = filePaths.map((filePath) => workspaceService.toRelativeWorkspacePath(filePath))
       return gitUnstage(rootPath, safeFilePaths)
-    } catch {
-      return false
+    } catch (error) {
+      return failedOperation(error, 'Unable to unstage the selected changes')
     }
   })
 
@@ -95,28 +103,28 @@ export function registerWorkspaceHandlers() {
       const rootPath = workspaceService.requireRootPath()
       const safeFilePath = workspaceService.assertWithinWorkspace(request.filePath, 'Git discard path')
       return gitDiscard(rootPath, { ...request, filePath: safeFilePath })
-    } catch {
-      return false
+    } catch (error) {
+      return failedOperation(error, 'Unable to discard local changes')
     }
   })
 
   ipcMain.handle(IPC.GIT_PUSH, async () => {
     try {
       return gitPush(workspaceService.requireRootPath())
-    } catch {
-      return false
+    } catch (error) {
+      return failedOperation(error, 'Push failed')
     }
   })
 
   ipcMain.handle(IPC.GIT_PULL, async () => {
     try {
       return gitPull(workspaceService.requireRootPath())
-    } catch {
-      return false
+    } catch (error) {
+      return failedOperation(error, 'Pull failed')
     }
   })
 
-  ipcMain.handle('git:diff', async (_, _rootPath: string, request: GitDiffRequest) => {
+  ipcMain.handle(IPC.GIT_DIFF, async (_, _rootPath: string, request: GitDiffRequest) => {
     try {
       const rootPath = workspaceService.requireRootPath()
       const safeFilePath = workspaceService.assertWithinWorkspace(request.filePath, 'Git diff path')
@@ -126,7 +134,7 @@ export function registerWorkspaceHandlers() {
     }
   })
 
-  ipcMain.handle('ws:get-all-files', async () => {
+  ipcMain.handle(IPC.WORKSPACE_GET_ALL_FILES, async () => {
     try {
       const rootPath = workspaceService.requireRootPath()
       return workspaceFileIndex.getFiles(rootPath)

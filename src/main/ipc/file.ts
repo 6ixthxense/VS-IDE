@@ -42,8 +42,8 @@ export function registerFileHandlers() {
   ipcMain.handle(IPC.FS_WRITE_FILE, (_event, filePath: string, content: string) => {
     try {
       return writeFile(workspaceService.assertWithinWorkspace(filePath, 'File path'), content)
-    } catch {
-      return false
+    } catch (error) {
+      return { success: false, error: 'Unable to save file', details: (error as Error).message }
     }
   })
 
@@ -114,7 +114,7 @@ export function registerFileHandlers() {
     }
   })
 
-  ipcMain.on('shell:reveal', (_event, targetPath: string) => {
+  ipcMain.on(IPC.SHELL_REVEAL, (_event, targetPath: string) => {
     try {
       shell.showItemInFolder(workspaceService.assertWithinWorkspace(targetPath, 'Target path'))
     } catch {

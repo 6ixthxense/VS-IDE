@@ -1,101 +1,103 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { GitDiffRequest, RunCodePayload, SearchOptions, SysStats, TerminalOutputEvent, WorkspaceChangedEvent } from '../shared/types/ipc'
+import { IPC } from '../shared/constants'
+import type { AppInfo, DiagnosticsSnapshot, ElectronAPI, GitDiffRequest, GitStatus, OperationResult, PathOperationResult, RunCodePayload, SearchOptions, SearchResult, SysStats, TerminalOutputEvent, TerminalStatusEvent, UpdateStatusEvent, WorkspaceChangedEvent } from '../shared/types/ipc'
+import type { FileEntry } from '../shared/types/file'
+import { normalizeRunCodePayload, normalizeSearchOptions, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
 
-const IPC = {
-  DIALOG_OPEN_FOLDER: 'dialog:openFolder',
-  FS_READ_DIR: 'fs:readDir',
-  FS_READ_FILE: 'fs:readFile',
-  FS_WRITE_FILE: 'fs:writeFile',
-  FS_CREATE_FILE: 'fs:createFile',
-  FS_CREATE_DIR: 'fs:createDir',
-  FS_DELETE_PATH: 'fs:deletePath',
-  FS_PATH_EXISTS: 'fs:pathExists',
-  WORKSPACE_GET: 'workspace:get',
-  WORKSPACE_SET: 'workspace:set',
-  RUN_CODE: 'run-code',
-  TERMINAL_OUT: 'terminal-out',
-  SYS_STATS: 'sys-stats',
-  WORKSPACE_CHANGED: 'workspace:changed',
-  FS_RENAME_PATH: 'fs:renamePath',
-  FS_MOVE_PATH: 'fs:movePath',
-  GIT_STATUS: 'git:status',
-  GIT_ADD: 'git:add',
-  GIT_UNSTAGE: 'git:unstage',
-  GIT_DISCARD: 'git:discard',
-  GIT_COMMIT: 'git:commit',
-  GIT_PUSH: 'git:push',
-  GIT_PULL: 'git:pull',
-} as const
+function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+  return ipcRenderer.invoke(channel, ...args) as Promise<T>
+}
 
-contextBridge.exposeInMainWorld('electronAPI', {
+function send(channel: string, ...args: unknown[]): void {
+  ipcRenderer.send(channel, ...args)
+}
+
+function subscribe<T>(channel: string, callback: unknown) {
+  const safeCallback = requireCallback<T>(callback, 'IPC callback')
+  const listener = (_event: Electron.IpcRendererEvent, payload: T) => {
+    safeCallback(payload)
+  }
+
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
+const api: ElectronAPI = Object.freeze({
   openFolder: (): Promise<string | null> =>
-    ipcRenderer.invoke(IPC.DIALOG_OPEN_FOLDER),
+    invoke<string | null>(IPC.DIALOG_OPEN_FOLDER),
 
-  readDir: (path: string) =>
-    ipcRenderer.invoke(IPC.FS_READ_DIR, path),
+  readDir: (path: string): Promise<FileEntry[]> =>
+    invoke<FileEntry[]>(IPC.FS_READ_DIR, requirePath(path)),
 
   readFile: (path: string): Promise<string> =>
-    ipcRenderer.invoke(IPC.FS_READ_FILE, path),
+    invoke<string>(IPC.FS_READ_FILE, requirePath(path)),
 
-  writeFile: (path: string, content: string): Promise<boolean> =>
-    ipcRenderer.invoke(IPC.FS_WRITE_FILE, path, content),
+  writeFile: (path: string, content: string): Promise<OperationResult> =>
+    invoke<OperationResult>(IPC.FS_WRITE_FILE, requirePath(path), content),
 
   createFile: (dirPath: string, fileName: string) =>
-    ipcRenderer.invoke(IPC.FS_CREATE_FILE, dirPath, fileName),
+    invoke<PathOperationResult>(
+      IPC.FS_CREATE_FILE,
+      requirePath(dirPath, 'Directory path'),
+      requireIdentifier(fileName, 'File name')
+    ),
 
   createDirectory: (dirPath: string, folderName: string) =>
-    ipcRenderer.invoke(IPC.FS_CREATE_DIR, dirPath, folderName),
+    invoke<PathOperationResult>(
+      IPC.FS_CREATE_DIR,
+      requirePath(dirPath, 'Directory path'),
+      requireIdentifier(folderName, 'Folder name')
+    ),
 
   deletePath: (targetPath: string) =>
-    ipcRenderer.invoke(IPC.FS_DELETE_PATH, targetPath),
+    invoke<OperationResult>(IPC.FS_DELETE_PATH, requirePath(targetPath, 'Target path')),
 
   pathExists: (path: string): Promise<boolean> =>
-    ipcRenderer.invoke(IPC.FS_PATH_EXISTS, path),
+    invoke<boolean>(IPC.FS_PATH_EXISTS, requirePath(path)),
 
   getWorkspace: (): Promise<string> =>
-    ipcRenderer.invoke(IPC.WORKSPACE_GET),
+    invoke<string>(IPC.WORKSPACE_GET),
 
   setWorkspaceRoot: (path: string | null): Promise<string | null> =>
-    ipcRenderer.invoke(IPC.WORKSPACE_SET, path),
+    invoke<string | null>(IPC.WORKSPACE_SET, path === null ? null : requirePath(path)),
 
   runCode: (payload: RunCodePayload): void =>
-    ipcRenderer.send(IPC.RUN_CODE, payload),
+    send(IPC.RUN_CODE, normalizeRunCodePayload(payload)),
 
   sendTerminalInput: (id: string, data: string) =>
-    ipcRenderer.send('terminal:input', id, data),
+    send(IPC.TERMINAL_INPUT, requireIdentifier(id, 'Terminal id'), data),
 
   resizeTerminal: (id: string, cols: number, rows: number) =>
-    ipcRenderer.send('terminal:resize', id, cols, rows),
+    send(IPC.TERMINAL_RESIZE, requireIdentifier(id, 'Terminal id'), cols, rows),
 
   setTerminalCwd: (id: string, path: string) =>
-    ipcRenderer.send('terminal:set-cwd', id, path),
+    send(IPC.TERMINAL_SET_CWD, requireIdentifier(id, 'Terminal id'), requirePath(path)),
 
   createTerminal: (id: string, rootPath: string) =>
-    ipcRenderer.send('terminal:create', id, rootPath),
+    send(IPC.TERMINAL_CREATE, requireIdentifier(id, 'Terminal id'), requireMaybeEmptyString(rootPath, 'Terminal root path')),
 
   closeTerminal: (id: string) =>
-    ipcRenderer.send('terminal:close', id),
+    send(IPC.TERMINAL_CLOSE, requireIdentifier(id, 'Terminal id')),
 
-  onTerminalOut: (cb: (data: TerminalOutputEvent) => void) => {
-    const listener = (_event: any, data: TerminalOutputEvent) => cb(data)
-    ipcRenderer.on(IPC.TERMINAL_OUT, listener)
-    return () => ipcRenderer.off(IPC.TERMINAL_OUT, listener)
-  },
+  onTerminalOut: (cb: (data: TerminalOutputEvent) => void) =>
+    subscribe<TerminalOutputEvent>(IPC.TERMINAL_OUT, cb),
 
-  onSysStats: (cb: (stats: SysStats) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, stats: SysStats) => cb(stats)
-    ipcRenderer.on(IPC.SYS_STATS, handler)
-    return () => ipcRenderer.removeListener(IPC.SYS_STATS, handler)
-  },
+  onTerminalStatus: (cb: (data: TerminalStatusEvent) => void) =>
+    subscribe<TerminalStatusEvent>(IPC.TERMINAL_STATUS, cb),
 
-  onWorkspaceChanged: (cb: (event: WorkspaceChangedEvent) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, event: WorkspaceChangedEvent) => cb(event)
-    ipcRenderer.on(IPC.WORKSPACE_CHANGED, handler)
-    return () => ipcRenderer.removeListener(IPC.WORKSPACE_CHANGED, handler)
-  },
+  onSysStats: (cb: (stats: SysStats) => void) =>
+    subscribe<SysStats>(IPC.SYS_STATS, cb),
+
+  onWorkspaceChanged: (cb: (event: WorkspaceChangedEvent) => void) =>
+    subscribe<WorkspaceChangedEvent>(IPC.WORKSPACE_CHANGED, cb),
 
   searchFiles: (query: string, rootPath: string, options?: Partial<SearchOptions>) =>
-    ipcRenderer.invoke('ws:search-files', query, rootPath, options),
+    invoke<SearchResult[]>(
+      IPC.WORKSPACE_SEARCH_FILES,
+      requireIdentifier(query, 'Search query'),
+      requirePath(rootPath, 'Workspace root path'),
+      normalizeSearchOptions(options)
+    ),
 
   replaceInFiles: (
     query: string,
@@ -103,43 +105,87 @@ contextBridge.exposeInMainWorld('electronAPI', {
     rootPath: string,
     options?: Partial<SearchOptions>,
     targetPath?: string
-  ) => ipcRenderer.invoke('ws:replace-in-files', query, replacement, rootPath, options, targetPath),
+  ) => invoke<{ success: boolean; count: number; error?: string }>(
+    IPC.WORKSPACE_REPLACE_IN_FILES,
+    requireIdentifier(query, 'Search query'),
+    replacement,
+    requirePath(rootPath, 'Workspace root path'),
+    normalizeSearchOptions(options),
+    targetPath == null ? undefined : requirePath(targetPath, 'Target path')
+  ),
 
   renamePath: (oldPath: string, newPath: string) =>
-    ipcRenderer.invoke(IPC.FS_RENAME_PATH, oldPath, newPath),
+    invoke<PathOperationResult>(
+      IPC.FS_RENAME_PATH,
+      requirePath(oldPath, 'Source path'),
+      requirePath(newPath, 'Destination path')
+    ),
 
   movePath: (oldPath: string, newPath: string) =>
-    ipcRenderer.invoke(IPC.FS_MOVE_PATH, oldPath, newPath),
+    invoke<PathOperationResult>(
+      IPC.FS_MOVE_PATH,
+      requirePath(oldPath, 'Source path'),
+      requirePath(newPath, 'Destination path')
+    ),
 
   revealInExplorer: (path: string) =>
-    ipcRenderer.send('shell:reveal', path),
+    send(IPC.SHELL_REVEAL, requirePath(path)),
 
   getGitStatus: (rootPath: string) =>
-    ipcRenderer.invoke(IPC.GIT_STATUS, rootPath),
+    invoke<GitStatus>(IPC.GIT_STATUS, requirePath(rootPath, 'Workspace root path')),
 
   gitAdd: (rootPath: string, filePaths: string[]) =>
-    ipcRenderer.invoke(IPC.GIT_ADD, rootPath, filePaths),
+    invoke<OperationResult>(IPC.GIT_ADD, requirePath(rootPath, 'Workspace root path'), filePaths.map((filePath) => requirePath(filePath))),
 
   gitUnstage: (rootPath: string, filePaths: string[]) =>
-    ipcRenderer.invoke(IPC.GIT_UNSTAGE, rootPath, filePaths),
+    invoke<OperationResult>(IPC.GIT_UNSTAGE, requirePath(rootPath, 'Workspace root path'), filePaths.map((filePath) => requirePath(filePath))),
 
   gitDiscard: (rootPath: string, request: GitDiffRequest) =>
-    ipcRenderer.invoke(IPC.GIT_DISCARD, rootPath, request),
+    invoke<OperationResult>(IPC.GIT_DISCARD, requirePath(rootPath, 'Workspace root path'), {
+      ...request,
+      filePath: requirePath(request.filePath, 'Git diff path'),
+    }),
 
   gitCommit: (rootPath: string, message: string) =>
-    ipcRenderer.invoke(IPC.GIT_COMMIT, rootPath, message),
+    invoke<OperationResult>(IPC.GIT_COMMIT, requirePath(rootPath, 'Workspace root path'), requireIdentifier(message, 'Commit message')),
 
   gitPush: (rootPath: string) =>
-    ipcRenderer.invoke(IPC.GIT_PUSH, rootPath),
+    invoke<OperationResult>(IPC.GIT_PUSH, requirePath(rootPath, 'Workspace root path')),
 
   gitPull: (rootPath: string) =>
-    ipcRenderer.invoke(IPC.GIT_PULL, rootPath),
+    invoke<OperationResult>(IPC.GIT_PULL, requirePath(rootPath, 'Workspace root path')),
 
   getGitDiff: (rootPath: string, request: GitDiffRequest) =>
-    ipcRenderer.invoke('git:diff', rootPath, request),
+    invoke<string>(IPC.GIT_DIFF, requirePath(rootPath, 'Workspace root path'), {
+      ...request,
+      filePath: requirePath(request.filePath, 'Git diff path'),
+    }),
 
   getAllFiles: (rootPath: string) =>
-    ipcRenderer.invoke('ws:get-all-files', rootPath),
+    invoke<string[]>(IPC.WORKSPACE_GET_ALL_FILES, requirePath(rootPath, 'Workspace root path')),
+
+  getAppInfo: () =>
+    invoke<AppInfo>(IPC.APP_INFO),
+
+  getDiagnostics: () =>
+    invoke<DiagnosticsSnapshot>(IPC.APP_GET_DIAGNOSTICS),
+
+  clearDiagnostics: () =>
+    invoke<OperationResult>(IPC.APP_CLEAR_DIAGNOSTICS),
+
+  openLogFolder: () =>
+    invoke<OperationResult>(IPC.APP_OPEN_LOG_FOLDER),
+
+  checkForUpdates: () =>
+    invoke<OperationResult>(IPC.APP_CHECK_FOR_UPDATES),
+
+  installUpdate: () =>
+    invoke<OperationResult>(IPC.APP_INSTALL_UPDATE),
+
+  onUpdateStatus: (cb: (event: UpdateStatusEvent) => void) =>
+    subscribe<UpdateStatusEvent>(IPC.APP_UPDATE_STATUS, cb),
 
   isWindows: process.platform === 'win32',
 })
+
+contextBridge.exposeInMainWorld('electronAPI', api)

@@ -164,12 +164,12 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
     })
     if (!confirmed) return
 
-    const result = await (window.electronAPI as any).deletePath(path)
+    const result = await window.electronAPI.deletePath(path)
     if (result.success) {
       await refreshTree()
       showSuccessToast(`"${name}" was removed.`, 'Deleted')
     } else {
-      showErrorToast(`Delete failed: ${result.error}`, 'Delete failed')
+      showErrorToast(result.error || 'Delete failed.', 'Delete failed', result.details)
     }
   }
 
@@ -193,7 +193,7 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
       await refreshTree()
       showSuccessToast(`Renamed to "${name.trim()}".`, 'Rename complete')
     } else {
-      showErrorToast(`Rename failed: ${result.error}`, 'Rename failed')
+      showErrorToast(result.error || 'Rename failed.', 'Rename failed', result.details)
     }
   }
 
@@ -245,7 +245,7 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
       await refreshTree()
       showSuccessToast('Item moved successfully.', 'Move complete')
     } else {
-      showErrorToast(`Move failed: ${result.error}`, 'Move failed')
+      showErrorToast(result.error || 'Move failed.', 'Move failed', result.details)
     }
   }
 
@@ -354,7 +354,7 @@ export function Sidebar() {
       await useEditorStore.getState().openFile(result.path)
       showSuccessToast(`Created "${result.path.split(window.electronAPI.isWindows ? '\\' : '/').pop() || 'file'}".`, 'File created')
     } else if (!result.success) {
-      showErrorToast(`Create file failed: ${result.error}`, 'Create file failed')
+      showErrorToast(result.error || 'Create file failed.', 'Create file failed', result.details)
     }
   }
 
@@ -369,7 +369,7 @@ export function Sidebar() {
       await refreshTree()
       showSuccessToast(`Created "${newFolderName.trim()}".`, 'Folder created')
     } else {
-      showErrorToast(`Create folder failed: ${result.error}`, 'Create folder failed')
+      showErrorToast(result.error || 'Create folder failed.', 'Create folder failed', result.details)
     }
   }
 

@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { FileEntry } from '@shared/types/file'
 import type { GitStatus } from '@shared/types/ipc'
+import { useEditorStore } from './editorStore'
+import { showErrorToast } from './feedbackStore'
+import { useTerminalStore } from './terminalStore'
 
 const LAST_OPENED_FOLDER_KEY = 'lastOpenedFolder'
 const RECENT_WORKSPACES_KEY = 'recentWorkspaces'
@@ -78,11 +81,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }))
       localStorage.setItem(LAST_OPENED_FOLDER_KEY, resolvedRootPath)
       persistRecentWorkspaces(recentWorkspaces)
+      await useEditorStore.getState().restoreSessionForWorkspace(resolvedRootPath)
+      useTerminalStore.getState().restoreForWorkspace(resolvedRootPath)
+      useTerminalStore.getState().updateTerminalCwd('default', resolvedRootPath)
       window.electronAPI.setTerminalCwd('default', resolvedRootPath)
       await get().refreshGitStatus()
     } catch (error) {
       console.error('Failed to set workspace root:', error)
       set({ isLoading: false })
+      showErrorToast((error as Error).message || 'Workspace could not be opened.', 'Workspace failed to load')
     }
   },
 
@@ -90,16 +97,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const { rootPath } = get()
     if (!rootPath) return
     set({ isLoading: true })
-    const tree = await window.electronAPI.readDir(rootPath)
-    set((state) => ({ tree, isLoading: false, revision: state.revision + 1 }))
-    await get().refreshGitStatus()
+    try {
+      const tree = await window.electronAPI.readDir(rootPath)
+      set((state) => ({ tree, isLoading: false, revision: state.revision + 1 }))
+      await get().refreshGitStatus()
+    } catch (error) {
+      set({ isLoading: false })
+      showErrorToast((error as Error).message || 'Unable to refresh the workspace tree.', 'Refresh failed')
+    }
   },
 
   refreshGitStatus: async () => {
     const { rootPath } = get()
     if (!rootPath) return
-    const gitStatus = await window.electronAPI.getGitStatus(rootPath)
-    set({ gitStatus })
+    try {
+      const gitStatus = await window.electronAPI.getGitStatus(rootPath)
+      set({ gitStatus })
+    } catch (error) {
+      showErrorToast((error as Error).message || 'Unable to refresh git status.', 'Git refresh failed')
+    }
   },
 
   init: async () => {

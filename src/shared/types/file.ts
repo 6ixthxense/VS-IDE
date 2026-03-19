@@ -1,3 +1,5 @@
+export type TabRecoveryState = 'recovered' | 'conflict'
+
 export interface FileEntry {
   name: string
   path: string
@@ -12,4 +14,6 @@ export interface Tab {
   content: string
   savedContent: string
   language: string
+  recoveryState?: TabRecoveryState
+  recoveryMessage?: string
 }

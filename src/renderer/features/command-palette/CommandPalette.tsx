@@ -59,6 +59,10 @@ export function CommandPalette() {
   const toggleTerminal = useUiStore((state) => state.toggleTerminal)
   const toggleSysMonitor = useUiStore((state) => state.toggleSysMonitor)
   const toggleSidebar = useUiStore((state) => state.toggleSidebar)
+  const toggleDiagnosticsModal = useUiStore((state) => state.toggleDiagnosticsModal)
+  const showSidebarView = useUiStore((state) => state.showSidebarView)
+  const appInfo = useUiStore((state) => state.appInfo)
+  const updateStatus = useUiStore((state) => state.updateStatus)
 
   const rootPath = useWorkspaceStore((state) => state.rootPath)
   const openFolder = useWorkspaceStore((state) => state.openFolder)
@@ -79,14 +83,15 @@ export function CommandPalette() {
   const closePalette = () => useUiStore.setState({ showCommandPalette: false })
 
   const revealSidebarView = (view: 'explorer' | 'search' | 'git') => {
-    useUiStore.setState({
-      activeSidebarView: view,
-      showSidebar: true,
-    })
+    showSidebarView(view)
   }
 
   const openSettings = () => {
     useUiStore.setState({ showSettingsModal: true })
+  }
+
+  const openDiagnostics = () => {
+    toggleDiagnosticsModal()
   }
 
   const openQuickOpen = () => {
@@ -96,12 +101,16 @@ export function CommandPalette() {
   const syncGitAction = async (direction: 'pull' | 'push') => {
     if (!rootPath) return
 
-    const success = direction === 'pull'
+    const result = direction === 'pull'
       ? await window.electronAPI.gitPull(rootPath)
       : await window.electronAPI.gitPush(rootPath)
 
-    if (!success) {
-      showErrorToast(`${direction === 'pull' ? 'Pull' : 'Push'} failed.`, `${direction === 'pull' ? 'Pull' : 'Push'} failed`)
+    if (!result.success) {
+      showErrorToast(
+        result.error || `${direction === 'pull' ? 'Pull' : 'Push'} failed.`,
+        `${direction === 'pull' ? 'Pull' : 'Push'} failed`,
+        result.details
+      )
       return
     }
 
@@ -118,6 +127,26 @@ export function CommandPalette() {
   const setAppTheme = (nextTheme: ThemeName) => {
     setTheme(nextTheme)
     showSuccessToast(`Theme switched to ${nextTheme}.`, 'Appearance updated')
+  }
+
+  const checkForUpdates = async () => {
+    const result = await window.electronAPI.checkForUpdates()
+    if (!result.success) {
+      showErrorToast(result.error || 'Unable to check for updates.', 'Update check failed', result.details)
+      return
+    }
+
+    showSuccessToast('Update check started in the background.', 'Checking for updates')
+  }
+
+  const installUpdate = async () => {
+    const result = await window.electronAPI.installUpdate()
+    if (!result.success) {
+      showErrorToast(result.error || 'Unable to install the downloaded update.', 'Install update failed', result.details)
+      return
+    }
+
+    showSuccessToast('The app will restart to finish installing the update.', 'Installing update')
   }
 
   const commands: Command[] = [
@@ -256,6 +285,39 @@ export function CommandPalette() {
       description: 'Adjust appearance, typography, and editor behavior.',
       keywords: ['preferences', 'theme'],
       action: () => { openSettings() },
+    },
+    {
+      id: 'open-diagnostics',
+      label: 'Open Diagnostics',
+      icon: 'fa-solid fa-stethoscope',
+      category: 'Application',
+      description: 'Inspect logs, update wiring, and recent runtime errors.',
+      keywords: ['logs', 'health', 'errors', 'diagnostics'],
+      action: () => { openDiagnostics() },
+    },
+    {
+      id: 'check-for-updates',
+      label: 'Check for Updates',
+      icon: 'fa-solid fa-cloud-arrow-down',
+      category: 'Application',
+      description: appInfo?.updateConfigured
+        ? 'Look for a newer packaged release.'
+        : 'Update checks are enabled only in packaged builds with an update URL.',
+      keywords: ['release', 'upgrade', 'download'],
+      disabled: !appInfo?.updateConfigured,
+      action: async () => { await checkForUpdates() },
+    },
+    {
+      id: 'install-downloaded-update',
+      label: 'Install Downloaded Update',
+      icon: 'fa-solid fa-rotate',
+      category: 'Application',
+      description: updateStatus?.state === 'downloaded'
+        ? 'Restart the app and finish installing the downloaded release.'
+        : 'A downloaded update needs to be ready first.',
+      keywords: ['restart', 'upgrade', 'apply update'],
+      disabled: updateStatus?.state !== 'downloaded',
+      action: async () => { await installUpdate() },
     },
     {
       id: 'theme-dark',

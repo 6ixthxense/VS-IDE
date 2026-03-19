@@ -66,32 +66,32 @@ export function GitPanel() {
   }, [refreshTree])
 
   const handleAdd = async (path: string) => {
-    const success = await window.electronAPI.gitAdd(rootPath!, [path])
-    if (success) {
+    const result = await window.electronAPI.gitAdd(rootPath!, [path])
+    if (result.success) {
       await refreshTree()
       showSuccessToast('Change staged successfully.', 'Staged')
     } else {
-      showErrorToast('Unable to stage this change.', 'Stage failed')
+      showErrorToast(result.error || 'Unable to stage this change.', 'Stage failed', result.details)
     }
   }
 
   const handleAddAll = async () => {
-    const success = await window.electronAPI.gitAdd(rootPath!, ['.'])
-    if (success) {
+    const result = await window.electronAPI.gitAdd(rootPath!, ['.'])
+    if (result.success) {
       await refreshTree()
       showSuccessToast('All current changes are staged.', 'Stage complete')
     } else {
-      showErrorToast('Unable to stage all changes.', 'Stage failed')
+      showErrorToast(result.error || 'Unable to stage all changes.', 'Stage failed', result.details)
     }
   }
 
   const handleUnstage = async (path: string) => {
-    const success = await window.electronAPI.gitUnstage(rootPath!, [path])
-    if (success) {
+    const result = await window.electronAPI.gitUnstage(rootPath!, [path])
+    if (result.success) {
       await refreshTree()
       showSuccessToast('Change moved back to the working tree.', 'Unstaged')
     } else {
-      showErrorToast('Unable to unstage this change.', 'Unstage failed')
+      showErrorToast(result.error || 'Unable to unstage this change.', 'Unstage failed', result.details)
     }
   }
 
@@ -114,40 +114,40 @@ export function GitPanel() {
 
     if (!confirmed) return
 
-    const success = await window.electronAPI.gitDiscard(rootPath!, change)
-    if (success) {
+    const result = await window.electronAPI.gitDiscard(rootPath!, change)
+    if (result.success) {
       await refreshTree()
       showSuccessToast('Local changes were discarded.', 'Discard complete')
     } else {
-      showErrorToast('Unable to discard this change.', 'Discard failed')
+      showErrorToast(result.error || 'Unable to discard this change.', 'Discard failed', result.details)
     }
   }
 
   const handleCommit = async () => {
     if (!commitMsg.trim()) return
-    const success = await window.electronAPI.gitCommit(rootPath!, commitMsg)
-    if (success) {
+    const result = await window.electronAPI.gitCommit(rootPath!, commitMsg)
+    if (result.success) {
       setCommitMsg('')
       await refreshTree()
       showSuccessToast('Commit created successfully.', 'Commit complete')
     } else {
-      showErrorToast('Commit failed. Check console for details.', 'Commit failed')
+      showErrorToast(result.error || 'Commit failed.', 'Commit failed', result.details)
     }
   }
 
   const handlePush = async () => {
-    const success = await window.electronAPI.gitPush(rootPath!)
-    if (success) showSuccessToast('Remote updated successfully.', 'Push complete')
-    else showErrorToast('Push failed.', 'Push failed')
+    const result = await window.electronAPI.gitPush(rootPath!)
+    if (result.success) showSuccessToast('Remote updated successfully.', 'Push complete')
+    else showErrorToast(result.error || 'Push failed.', 'Push failed', result.details)
   }
 
   const handlePull = async () => {
-    const success = await window.electronAPI.gitPull(rootPath!)
-    if (success) {
+    const result = await window.electronAPI.gitPull(rootPath!)
+    if (result.success) {
        showSuccessToast('Workspace is up to date.', 'Pull complete')
        await refreshTree()
     } else {
-      showErrorToast('Pull failed.', 'Pull failed')
+      showErrorToast(result.error || 'Pull failed.', 'Pull failed', result.details)
     }
   }
 

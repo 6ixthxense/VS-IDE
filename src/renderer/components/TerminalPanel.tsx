@@ -4,6 +4,8 @@ import type { ITheme } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import { useEditorStore } from '../store/editorStore'
+import { showInfoToast } from '../store/feedbackStore'
+import { useTerminalStore } from '../store/terminalStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useConfigStore } from '../store/configStore'
 import type { ThemeName } from '../config/appearance'
@@ -112,19 +114,28 @@ function getTerminalTheme(theme: ThemeName, accent: string): ITheme {
 }
 
 export function TerminalPanel() {
-  const [terminals, setTerminals] = React.useState<string[]>(['default'])
-  const [activeId, setActiveId] = React.useState('default')
   const termContainerRef = useRef<HTMLDivElement>(null)
   
   // Map of Terminal instances
   const termsRef = useRef<Map<string, TerminalSession>>(new Map())
   const { getActiveTab } = useEditorStore()
   const { rootPath } = useWorkspaceStore()
+  const terminals = useTerminalStore((state) => state.terminals)
+  const activeId = useTerminalStore((state) => state.activeId)
+  const addTerminalSession = useTerminalStore((state) => state.addTerminal)
+  const removeTerminalSession = useTerminalStore((state) => state.removeTerminal)
+  const restoreTerminalSession = useTerminalStore((state) => state.restoreForWorkspace)
+  const setActiveTerminal = useTerminalStore((state) => state.setActiveId)
+  const updateTerminalCwd = useTerminalStore((state) => state.updateTerminalCwd)
   const theme = useConfigStore((s) => s.theme)
   const accent = useConfigStore((s) => s.accent)
   const fontFamily = useConfigStore((s) => s.fontFamily)
   const terminalFontSize = useConfigStore((s) => s.terminalFontSize)
   const showTerminal = useUiStore((s) => s.showTerminal)
+
+  useEffect(() => {
+    restoreTerminalSession(rootPath)
+  }, [restoreTerminalSession, rootPath])
 
   useEffect(() => {
     // Only manage active terminal visibility
@@ -144,7 +155,18 @@ export function TerminalPanel() {
   }, [activeId, showTerminal, terminals])
 
   useEffect(() => {
-    const setupTerminal = (id: string) => {
+    const visibleTerminalIds = new Set(terminals.map((terminal) => terminal.id))
+
+    termsRef.current.forEach(({ observer, term, container }, id) => {
+      if (visibleTerminalIds.has(id)) return
+      observer.disconnect()
+      term.dispose()
+      container.remove()
+      termsRef.current.delete(id)
+      window.electronAPI.closeTerminal(id)
+    })
+
+    const setupTerminal = (id: string, cwd: string) => {
       if (termsRef.current.has(id)) return
       
       const term = new Terminal({
@@ -186,9 +208,10 @@ export function TerminalPanel() {
       })
 
       termsRef.current.set(id, { term, fit, observer, container })
+      window.electronAPI.createTerminal(id, cwd)
     }
 
-    terminals.forEach(setupTerminal)
+    terminals.forEach((terminal) => setupTerminal(terminal.id, terminal.cwd || rootPath || ''))
 
     const cleanup = window.electronAPI.onTerminalOut(({ id, data }) => {
       const t = termsRef.current.get(id)
@@ -198,7 +221,7 @@ export function TerminalPanel() {
     return () => {
       cleanup()
     }
-  }, [accent, fontFamily, terminalFontSize, terminals, theme])
+  }, [accent, activeId, fontFamily, rootPath, terminalFontSize, terminals, theme])
 
   useEffect(() => {
     const nextTheme = getTerminalTheme(theme, accent)
@@ -225,27 +248,13 @@ export function TerminalPanel() {
   }, [])
 
   const addTerminal = () => {
-    const id = `term-${Date.now()}`
-    setTerminals(prev => [...prev, id])
-    setActiveId(id)
-    window.electronAPI.createTerminal(id, rootPath || '')
+    const id = addTerminalSession(rootPath || '')
+    setActiveTerminal(id)
   }
 
   const closeTerminal = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (terminals.length === 1) return
-    
-    setTerminals(terminals.filter(t => t !== id))
-    if (activeId === id) {
-      // Find the next active terminal, prioritizing the one before the closed one
-      const currentIndex = terminals.indexOf(id);
-      const newActiveIndex = currentIndex > 0 ? currentIndex - 1 : (terminals.length > 1 ? 0 : -1);
-      if (newActiveIndex !== -1) {
-        setActiveId(terminals.filter(t => t !== id)[newActiveIndex]);
-      } else {
-        setActiveId(''); // No terminals left, though we prevent closing the last one
-      }
-    }
     
     const t = termsRef.current.get(id)
     if (t) {
@@ -255,6 +264,7 @@ export function TerminalPanel() {
       termsRef.current.delete(id)
     }
     window.electronAPI.closeTerminal(id)
+    removeTerminalSession(id)
   }
 
   const handleRun = () => {
@@ -277,15 +287,25 @@ export function TerminalPanel() {
 
   const handleClear = () => termsRef.current.get(activeId)?.term.clear()
 
+  const handleOpenActiveWorkspaceShell = () => {
+    if (!rootPath) {
+      showInfoToast('Open a workspace first, then terminal sessions will follow that folder.', 'No workspace yet')
+      return
+    }
+
+    updateTerminalCwd(activeId, rootPath)
+    window.electronAPI.setTerminalCwd(activeId, rootPath)
+  }
+
   return (
     <div className="terminal-panel">
       <div className="terminal-header">
         <div className="terminal-tabs">
-          {terminals.map(id => (
+          {terminals.map(({ id }) => (
             <div 
               key={id} 
               className={`terminal-tab ${activeId === id ? 'active' : ''}`}
-              onClick={() => setActiveId(id)}
+              onClick={() => setActiveTerminal(id)}
             >
               <span>{id === 'default' ? 'powershell' : 'term'}</span>
               <i className="fa-solid fa-xmark" onClick={(e) => closeTerminal(id, e)}></i>
@@ -297,6 +317,7 @@ export function TerminalPanel() {
         </div>
         <div className="terminal-actions">
           <button onClick={handleRun} title="Run current file (Ctrl+R)">▶ Run</button>
+          <button onClick={handleOpenActiveWorkspaceShell} title="Jump terminal to workspace">⌂ Root</button>
           <button onClick={handleClear} title="Clear">⊘ Clear</button>
         </div>
       </div>

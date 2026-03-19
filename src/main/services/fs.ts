@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { FileEntry } from '../../shared/types/file'
+import type { OperationResult, PathOperationResult } from '../../shared/types/ipc'
 
 export function readDir(dirPath: string): FileEntry[] {
   try {
@@ -39,16 +40,16 @@ export function readFile(filePath: string): string {
   }
 }
 
-export function writeFile(filePath: string, content: string): boolean {
+export function writeFile(filePath: string, content: string): OperationResult {
   try {
     fs.writeFileSync(filePath, content, 'utf8')
-    return true
-  } catch {
-    return false
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: 'Unable to save file', details: (error as Error).message }
   }
 }
 
-export function createFile(dirPath: string, fileName: string): { success: boolean; path?: string; error?: string } {
+export function createFile(dirPath: string, fileName: string): PathOperationResult {
   try {
     const fullPath = path.join(dirPath, fileName)
     if (fs.existsSync(fullPath)) return { success: false, error: 'File already exists' }
@@ -59,7 +60,7 @@ export function createFile(dirPath: string, fileName: string): { success: boolea
   }
 }
 
-export function createDirectory(dirPath: string, folderName: string): { success: boolean; path?: string; error?: string } {
+export function createDirectory(dirPath: string, folderName: string): PathOperationResult {
   try {
     const fullPath = path.join(dirPath, folderName)
     if (fs.existsSync(fullPath)) return { success: false, error: 'Folder already exists' }
@@ -70,7 +71,7 @@ export function createDirectory(dirPath: string, folderName: string): { success:
   }
 }
 
-export function deletePath(targetPath: string): { success: boolean; error?: string } {
+export function deletePath(targetPath: string): OperationResult {
   try {
     if (!fs.existsSync(targetPath)) return { success: false, error: 'Path does not exist' }
     const stat = fs.statSync(targetPath)
@@ -85,7 +86,7 @@ export function deletePath(targetPath: string): { success: boolean; error?: stri
   }
 }
 
-export function renamePath(oldPath: string, newPath: string): { success: boolean; path?: string; error?: string } {
+export function renamePath(oldPath: string, newPath: string): PathOperationResult {
   try {
     if (!fs.existsSync(oldPath)) return { success: false, error: 'Source path does not exist' }
     if (fs.existsSync(newPath)) return { success: false, error: 'Destination path already exists' }
@@ -96,7 +97,7 @@ export function renamePath(oldPath: string, newPath: string): { success: boolean
   }
 }
 
-export function movePath(oldPath: string, newPath: string): { success: boolean; path?: string; error?: string } {
+export function movePath(oldPath: string, newPath: string): PathOperationResult {
   try {
     if (!fs.existsSync(oldPath)) return { success: false, error: 'Source path does not exist' }
     // If destination is a directory, move inside it

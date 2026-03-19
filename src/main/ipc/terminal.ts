@@ -3,7 +3,8 @@ import { ChildProcess, spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { IPC } from '../../shared/constants/index'
-import type { RunCodePayload } from '../../shared/types/ipc'
+import type { RunCodePayload, TerminalStatusEvent } from '../../shared/types/ipc'
+import { diagnosticsService } from '../services/diagnostics'
 import { TerminalService } from '../services/terminal'
 
 // Track active processes and their input buffers for each terminal to route input correctly
@@ -18,6 +19,14 @@ function sendTerminalOutput(id: string, data: string) {
   })
 }
 
+function sendTerminalStatus(event: TerminalStatusEvent) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC.TERMINAL_STATUS, event)
+    }
+  })
+}
+
 function cleanupTempFile(filePath: string) {
   void fs.promises.rm(filePath, { force: true }).catch(() => {})
 }
@@ -26,7 +35,7 @@ export function registerTerminalHandlers() {
   // Initialize on register load or lazily
   TerminalService.getInstance().init()
 
-  ipcMain.on('terminal:input', (_event, id: string, data: string) => {
+  ipcMain.on(IPC.TERMINAL_INPUT, (_event, id: string, data: string) => {
     const activeRun = activeRuns.get(id)
     if (activeRun && activeRun.stdin && !activeRun.killed) {
       const buffer = inputBuffers.get(id) || ''
@@ -45,7 +54,7 @@ export function registerTerminalHandlers() {
       } else if (data === '\x03') {
         // Ctrl+C: Send interrupt and kill process
         inputBuffers.set(id, '')
-        console.log(`[Run:${id}] Ctrl+C received`)
+        diagnosticsService.info('terminal', 'Run interrupted from terminal input.', `Terminal ${id}`)
         sendTerminalOutput(id, '^C\r\n')
         activeRun.kill('SIGINT')
       } else if (data === '\x1a' || data === '\x04') {
@@ -55,7 +64,7 @@ export function registerTerminalHandlers() {
           activeRun.stdin.write(buffer)
           inputBuffers.set(id, '')
         }
-        console.log(`[Run:${id}] ${char} received, closing stdin`)
+        diagnosticsService.info('terminal', 'Run input stream closed from terminal input.', `Terminal ${id} via ${char}`)
         sendTerminalOutput(id, `${char}\r\n`)
         activeRun.stdin.end()
       } else {
@@ -70,19 +79,19 @@ export function registerTerminalHandlers() {
     }
   })
 
-  ipcMain.on('terminal:resize', (_event, id: string, cols: number, rows: number) => {
+  ipcMain.on(IPC.TERMINAL_RESIZE, (_event, id: string, cols: number, rows: number) => {
     TerminalService.getInstance().resize(id, cols, rows)
   })
 
-  ipcMain.on('terminal:set-cwd', (_event, id: string, path: string) => {
+  ipcMain.on(IPC.TERMINAL_SET_CWD, (_event, id: string, path: string) => {
     TerminalService.getInstance().setWorkingDirectory(id, path)
   })
 
-  ipcMain.on('terminal:create', (_event, id: string, rootPath: string) => {
+  ipcMain.on(IPC.TERMINAL_CREATE, (_event, id: string, rootPath: string) => {
     TerminalService.getInstance().createTerminal(id, rootPath)
   })
 
-  ipcMain.on('terminal:close', (_event, id: string) => {
+  ipcMain.on(IPC.TERMINAL_CLOSE, (_event, id: string) => {
     TerminalService.getInstance().closeTerminal(id)
     // Kill any active run for this terminal
     const run = activeRuns.get(id)
@@ -137,6 +146,16 @@ export function registerTerminalHandlers() {
           inputBuffers.delete(terminalId)
         }
         sendTerminalOutput(terminalId, `\r\n\x1b[32m[Done] exited with code ${code}\x1b[0m\r\n`)
+        if (typeof code === 'number' && code !== 0) {
+          diagnosticsService.warn('terminal', 'Run finished with a non-zero exit code.', `${cmd} exited with code ${code}`)
+          sendTerminalStatus({
+            id: terminalId,
+            level: 'warning',
+            title: 'Run finished with errors',
+            message: `${cmd} exited with code ${code}.`,
+            details: `Temporary file: ${tmpFile}`,
+          })
+        }
         cleanupTempFile(tmpFile)
       })
 
@@ -144,12 +163,28 @@ export function registerTerminalHandlers() {
         if (activeRuns.get(terminalId) === child) {
           activeRuns.delete(terminalId)
         }
+        diagnosticsService.error('terminal', 'Run failed to start.', err.message)
         sendTerminalOutput(terminalId, `\r\n\x1b[31m[Execute Error: ${err.message}]\x1b[0m\r\n`)
+        sendTerminalStatus({
+          id: terminalId,
+          level: 'error',
+          title: 'Run failed to start',
+          message: `Unable to launch ${cmd}.`,
+          details: err.message,
+        })
         cleanupTempFile(tmpFile)
       })
 
     } catch (err: unknown) {
+      diagnosticsService.error('terminal', 'Run preparation failed.', (err as Error).message)
       sendTerminalOutput(terminalId, `\r\n\x1b[31m[Run Error: ${(err as Error).message}]\x1b[0m\r\n`)
+      sendTerminalStatus({
+        id: terminalId,
+        level: 'error',
+        title: 'Run preparation failed',
+        message: 'The file could not be prepared for execution.',
+        details: (err as Error).message,
+      })
     }
   })
 }

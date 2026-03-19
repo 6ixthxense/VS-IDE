@@ -3,6 +3,7 @@ import path from 'path'
 
 export function createWindow(): BrowserWindow {
   const isDevelopment = process.env.NODE_ENV === 'development'
+  const windowIconPath = path.resolve(process.cwd(), 'build', 'icon.png')
 
   const win = new BrowserWindow({
     width: 1400,
@@ -12,11 +13,13 @@ export function createWindow(): BrowserWindow {
     backgroundColor: '#1e1e1e',
     autoHideMenuBar: true,
     frame: true,
+    icon: windowIconPath,
     webPreferences: {
       preload: path.join(__dirname, '../../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      // The preload now imports local helper modules, which requires an unsandboxed preload.
+      sandbox: false,
       devTools: isDevelopment,
     },
   })

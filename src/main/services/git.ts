@@ -1,7 +1,20 @@
 import fs from 'fs'
 import simpleGit from 'simple-git'
-import type { GitDiffRequest, GitStatus } from '../../shared/types/ipc'
+import type { GitDiffRequest, GitStatus, OperationResult } from '../../shared/types/ipc'
 import path from 'path'
+
+function operationSuccess(): OperationResult {
+  return { success: true }
+}
+
+function operationFailure(error: unknown, fallback: string): OperationResult {
+  const message = error instanceof Error ? error.message : String(error)
+  return {
+    success: false,
+    error: fallback,
+    details: message,
+  }
+}
 
 export async function getGitStatus(rootPath: string): Promise<GitStatus> {
   try {
@@ -27,37 +40,37 @@ export async function getGitStatus(rootPath: string): Promise<GitStatus> {
   }
 }
 
-export async function gitAdd(rootPath: string, filePaths: string[]): Promise<boolean> {
+export async function gitAdd(rootPath: string, filePaths: string[]): Promise<OperationResult> {
   try {
     const git = simpleGit(rootPath)
     await git.add(filePaths)
-    return true
+    return operationSuccess()
   } catch (e) {
     console.error('Git add error:', e)
-    return false
+    return operationFailure(e, 'Unable to stage the selected changes')
   }
 }
 
-export async function gitUnstage(rootPath: string, filePaths: string[]): Promise<boolean> {
+export async function gitUnstage(rootPath: string, filePaths: string[]): Promise<OperationResult> {
   try {
     const git = simpleGit(rootPath)
     await git.reset(['HEAD', '--', ...filePaths])
-    return true
+    return operationSuccess()
   } catch (e) {
     console.error('Git unstage error:', e)
-    return false
+    return operationFailure(e, 'Unable to unstage the selected changes')
   }
 }
 
-export async function gitDiscard(rootPath: string, request: GitDiffRequest): Promise<boolean> {
+export async function gitDiscard(rootPath: string, request: GitDiffRequest): Promise<OperationResult> {
   try {
     if (request.status === 'renamed') {
-      return false
+      return { success: false, error: 'Discard for renamed files is not supported yet' }
     }
 
     if (request.status === 'untracked' || request.status === 'added') {
       await fs.promises.rm(request.filePath, { recursive: true, force: true })
-      return true
+      return operationSuccess()
     }
 
     const git = simpleGit(rootPath)
@@ -70,43 +83,43 @@ export async function gitDiscard(rootPath: string, request: GitDiffRequest): Pro
 
     args.push('--worktree', '--', relativePath)
     await git.raw(args)
-    return true
+    return operationSuccess()
   } catch (e) {
     console.error('Git discard error:', e)
-    return false
+    return operationFailure(e, 'Unable to discard local changes')
   }
 }
 
-export async function gitCommit(rootPath: string, message: string): Promise<boolean> {
+export async function gitCommit(rootPath: string, message: string): Promise<OperationResult> {
   try {
     const git = simpleGit(rootPath)
     await git.commit(message)
-    return true
+    return operationSuccess()
   } catch (e) {
     console.error('Git commit error:', e)
-    return false
+    return operationFailure(e, 'Commit failed')
   }
 }
 
-export async function gitPush(rootPath: string): Promise<boolean> {
+export async function gitPush(rootPath: string): Promise<OperationResult> {
   try {
     const git = simpleGit(rootPath)
     await git.push()
-    return true
+    return operationSuccess()
   } catch (e) {
     console.error('Git push error:', e)
-    return false
+    return operationFailure(e, 'Push failed')
   }
 }
 
-export async function gitPull(rootPath: string): Promise<boolean> {
+export async function gitPull(rootPath: string): Promise<OperationResult> {
   try {
     const git = simpleGit(rootPath)
     await git.pull()
-    return true
+    return operationSuccess()
   } catch (e) {
     console.error('Git pull error:', e)
-    return false
+    return operationFailure(e, 'Pull failed')
   }
 }
 

@@ -10,6 +10,7 @@ import { useWorkspaceStore } from './store/workspaceStore'
 import { useSysStore } from './store/sysStore'
 import { useConfigStore } from './store/configStore'
 import { useEditorStore } from './store/editorStore'
+import { showErrorToast, showSuccessToast, showWarningToast } from './store/feedbackStore'
 import { applyAppearanceConfig } from './config/appearance'
 import { normalizeSysStats } from './utils/sysStats'
 
@@ -24,6 +25,9 @@ const CommandPalette = lazy(() =>
 )
 const SettingsModal = lazy(() =>
   import('./components/SettingsModal').then((module) => ({ default: module.SettingsModal }))
+)
+const DiagnosticsModal = lazy(() =>
+  import('./components/DiagnosticsModal').then((module) => ({ default: module.DiagnosticsModal }))
 )
 const SysMonitor = lazy(() =>
   import('./features/system-monitor/SysMonitor').then((module) => ({ default: module.SysMonitor }))
@@ -44,6 +48,9 @@ export default function App() {
   const showSidebar = useUiStore((s) => s.showSidebar)
   const showQuickOpen = useUiStore((s) => s.showQuickOpen)
   const showSettingsModal = useUiStore((s) => s.showSettingsModal)
+  const showDiagnosticsModal = useUiStore((s) => s.showDiagnosticsModal)
+  const setAppInfo = useUiStore((s) => s.setAppInfo)
+  const setUpdateStatus = useUiStore((s) => s.setUpdateStatus)
   const theme = useConfigStore((s) => s.theme)
   const accent = useConfigStore((s) => s.accent)
   const accentGradient = useConfigStore((s) => s.accentGradient)
@@ -51,6 +58,7 @@ export default function App() {
   const terminalFontSize = useConfigStore((s) => s.terminalFontSize)
   const fontFamily = useConfigStore((s) => s.fontFamily)
   const workspaceRefreshTimerRef = useRef<number | null>(null)
+  const hasShownBridgeToastRef = useRef(false)
 
   const toggleTerminal = useUiStore((s) => s.toggleTerminal)
   const toggleCommandPalette = useUiStore((s) => s.toggleCommandPalette)
@@ -102,6 +110,7 @@ export default function App() {
       workspaceRefreshTimerRef.current = window.setTimeout(() => {
         workspaceRefreshTimerRef.current = null
         void refreshTree()
+        void useEditorStore.getState().syncOpenTabsWithDisk()
       }, 180)
     })
 
@@ -115,8 +124,52 @@ export default function App() {
 
   // Initialize workspace and theme on mount
   useEffect(() => {
+    useUiStore.getState().initWorkbenchUi()
     useWorkspaceStore.getState().init()
   }, [])
+
+  useEffect(() => {
+    void window.electronAPI.getAppInfo().then((info) => {
+      setAppInfo(info)
+      if (!info.bridgeAvailable && !hasShownBridgeToastRef.current) {
+        hasShownBridgeToastRef.current = true
+        showErrorToast(
+          'Electron bridge is unavailable, so filesystem, terminal, and git features are disabled.',
+          'Running without preload',
+          'Start the app with `npm run dev` or the packaged Electron executable. Opening the Vite URL directly will not load preload APIs.'
+        )
+      }
+    })
+
+    const cleanupTerminalStatus = window.electronAPI.onTerminalStatus((event) => {
+      if (event.level === 'error') {
+        showErrorToast(event.message, event.title, event.details)
+      } else if (event.level === 'warning') {
+        showWarningToast(event.message, event.title)
+      }
+    })
+
+    const cleanupUpdateStatus = window.electronAPI.onUpdateStatus((event) => {
+      setUpdateStatus(event)
+
+      if (event.state === 'available') {
+        showWarningToast(event.message, 'Update available')
+      }
+
+      if (event.state === 'downloaded') {
+        showSuccessToast(event.message, 'Update ready')
+      }
+
+      if (event.state === 'error') {
+        showErrorToast(event.message, 'Updater failed', event.details)
+      }
+    })
+
+    return () => {
+      cleanupTerminalStatus()
+      cleanupUpdateStatus()
+    }
+  }, [setAppInfo, setUpdateStatus])
 
   const wordWrap = useConfigStore((s) => s.wordWrap)
   const lineNumbers = useConfigStore((s) => s.lineNumbers)
@@ -263,6 +316,11 @@ export default function App() {
       {showSettingsModal && (
         <Suspense fallback={null}>
           <SettingsModal />
+        </Suspense>
+      )}
+      {showDiagnosticsModal && (
+        <Suspense fallback={null}>
+          <DiagnosticsModal />
         </Suspense>
       )}
       <ToastCenter />
