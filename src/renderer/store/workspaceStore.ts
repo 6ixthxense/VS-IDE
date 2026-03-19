@@ -2,8 +2,36 @@ import { create } from 'zustand'
 import type { FileEntry } from '@shared/types/file'
 import type { GitStatus } from '@shared/types/ipc'
 
+const LAST_OPENED_FOLDER_KEY = 'lastOpenedFolder'
+const RECENT_WORKSPACES_KEY = 'recentWorkspaces'
+const MAX_RECENT_WORKSPACES = 8
+
+function readRecentWorkspaces() {
+  if (typeof window === 'undefined') return [] as string[]
+
+  try {
+    const raw = window.localStorage.getItem(RECENT_WORKSPACES_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function persistRecentWorkspaces(items: string[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(RECENT_WORKSPACES_KEY, JSON.stringify(items))
+}
+
+function touchRecentWorkspace(items: string[], nextPath: string) {
+  return [nextPath, ...items.filter((item) => item !== nextPath)].slice(0, MAX_RECENT_WORKSPACES)
+}
+
 interface WorkspaceState {
   rootPath: string | null
+  recentWorkspaces: string[]
+  revision: number
   tree: FileEntry[]
   isLoading: boolean
   openFolder: () => Promise<void>
@@ -16,6 +44,8 @@ interface WorkspaceState {
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   rootPath: null,
+  recentWorkspaces: readRecentWorkspaces(),
+  revision: 0,
   tree: [],
   gitStatus: {},
   isLoading: false,
@@ -28,14 +58,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setRootPath: async (rootPath: string) => {
-    set({ rootPath, isLoading: true })
-    const tree = await window.electronAPI.readDir(rootPath)
-    set({ tree, isLoading: false })
-    localStorage.setItem('lastOpenedFolder', rootPath)
-    // Also sync to terminal
-    window.electronAPI.setTerminalCwd('default', rootPath)
-    // Fetch Git status
-    get().refreshGitStatus()
+    set({ isLoading: true })
+
+    try {
+      const resolvedRootPath = await window.electronAPI.setWorkspaceRoot(rootPath)
+      if (!resolvedRootPath) {
+        set({ isLoading: false })
+        return
+      }
+
+      const tree = await window.electronAPI.readDir(resolvedRootPath)
+      const recentWorkspaces = touchRecentWorkspace(get().recentWorkspaces, resolvedRootPath)
+      set((state) => ({
+        rootPath: resolvedRootPath,
+        tree,
+        isLoading: false,
+        recentWorkspaces,
+        revision: state.revision + 1,
+      }))
+      localStorage.setItem(LAST_OPENED_FOLDER_KEY, resolvedRootPath)
+      persistRecentWorkspaces(recentWorkspaces)
+      window.electronAPI.setTerminalCwd('default', resolvedRootPath)
+      await get().refreshGitStatus()
+    } catch (error) {
+      console.error('Failed to set workspace root:', error)
+      set({ isLoading: false })
+    }
   },
 
   refreshTree: async () => {
@@ -43,8 +91,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (!rootPath) return
     set({ isLoading: true })
     const tree = await window.electronAPI.readDir(rootPath)
-    set({ tree, isLoading: false })
-    get().refreshGitStatus()
+    set((state) => ({ tree, isLoading: false, revision: state.revision + 1 }))
+    await get().refreshGitStatus()
   },
 
   refreshGitStatus: async () => {
@@ -55,13 +103,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   init: async () => {
-    const lastFolder = localStorage.getItem('lastOpenedFolder')
+    const recentWorkspaces = readRecentWorkspaces()
+    set({ recentWorkspaces })
+
+    const lastFolder = localStorage.getItem(LAST_OPENED_FOLDER_KEY)
     if (lastFolder) {
-      const exists = await window.electronAPI.pathExists(lastFolder)
-      if (exists) {
+      try {
         await get().setRootPath(lastFolder)
-      } else {
-        localStorage.removeItem('lastOpenedFolder')
+      } catch {
+        localStorage.removeItem(LAST_OPENED_FOLDER_KEY)
       }
     }
   },

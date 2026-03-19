@@ -11,6 +11,10 @@
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.node.json",
+    "lint": "eslint src vitest.config.ts eslint.config.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run test && npm run build",
     "dist": "npm run build && electron-builder --win",
     "start": "electron ."
   },
@@ -64,6 +68,7 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^20.12.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
@@ -72,7 +77,13 @@
     "cross-env": "^7.0.3",
     "electron": "^34.3.0",
     "electron-builder": "^24.13.3",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^17.4.0",
+    "jsdom": "^29.0.0",
     "typescript": "^5.4.5",
-    "vite": "^5.3.1"
+    "typescript-eslint": "^8.57.1",
+    "vite": "^5.3.1",
+    "vitest": "^4.1.0"
   }
 }

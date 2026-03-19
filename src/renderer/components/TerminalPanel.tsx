@@ -1,9 +1,114 @@
 import React, { useEffect, useRef } from 'react'
 import { Terminal } from 'xterm'
+import type { ITheme } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import { useEditorStore } from '../store/editorStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useConfigStore } from '../store/configStore'
+import type { ThemeName } from '../config/appearance'
+
+interface TerminalSession {
+  term: Terminal
+  fit: FitAddon
+  observer: ResizeObserver
+  container: HTMLDivElement
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '')
+
+  if (normalized.length !== 6) {
+    return `rgba(38, 79, 120, ${alpha})`
+  }
+
+  const value = Number.parseInt(normalized, 16)
+  const r = (value >> 16) & 255
+  const g = (value >> 8) & 255
+  const b = value & 255
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function getTerminalTheme(theme: ThemeName, accent: string): ITheme {
+  const selectionBackground = hexToRgba(accent, theme === 'light' ? 0.18 : 0.28)
+
+  if (theme === 'light') {
+    return {
+      background: '#ffffff',
+      foreground: '#1f2937',
+      cursor: accent,
+      cursorAccent: '#ffffff',
+      selectionBackground,
+      black: '#111827',
+      red: '#dc2626',
+      green: '#16a34a',
+      yellow: '#ca8a04',
+      blue: '#2563eb',
+      magenta: '#9333ea',
+      cyan: '#0891b2',
+      white: '#6b7280',
+      brightBlack: '#94a3b8',
+      brightRed: '#ef4444',
+      brightGreen: '#22c55e',
+      brightYellow: '#eab308',
+      brightBlue: '#3b82f6',
+      brightMagenta: '#a855f7',
+      brightCyan: '#06b6d4',
+      brightWhite: '#0f172a',
+    }
+  }
+
+  if (theme === 'amoled') {
+    return {
+      background: '#000000',
+      foreground: '#f5f5f5',
+      cursor: accent,
+      cursorAccent: '#000000',
+      selectionBackground,
+      black: '#111111',
+      red: '#ef4444',
+      green: '#22c55e',
+      yellow: '#f59e0b',
+      blue: '#3b82f6',
+      magenta: '#c084fc',
+      cyan: '#22d3ee',
+      white: '#e5e7eb',
+      brightBlack: '#525252',
+      brightRed: '#f87171',
+      brightGreen: '#4ade80',
+      brightYellow: '#fbbf24',
+      brightBlue: '#60a5fa',
+      brightMagenta: '#d8b4fe',
+      brightCyan: '#67e8f9',
+      brightWhite: '#ffffff',
+    }
+  }
+
+  return {
+    background: '#0d1117',
+    foreground: '#e5e7eb',
+    cursor: accent,
+    cursorAccent: '#0d1117',
+    selectionBackground,
+    black: '#111827',
+    red: '#f87171',
+    green: '#4ade80',
+    yellow: '#fbbf24',
+    blue: '#60a5fa',
+    magenta: '#c084fc',
+    cyan: '#22d3ee',
+    white: '#d1d5db',
+    brightBlack: '#6b7280',
+    brightRed: '#fca5a5',
+    brightGreen: '#86efac',
+    brightYellow: '#fde68a',
+    brightBlue: '#93c5fd',
+    brightMagenta: '#d8b4fe',
+    brightCyan: '#67e8f9',
+    brightWhite: '#f9fafb',
+  }
+}
 
 export function TerminalPanel() {
   const [terminals, setTerminals] = React.useState<string[]>(['default'])
@@ -11,9 +116,13 @@ export function TerminalPanel() {
   const termContainerRef = useRef<HTMLDivElement>(null)
   
   // Map of Terminal instances
-  const termsRef = useRef<Map<string, { term: Terminal, fit: FitAddon }>>(new Map())
+  const termsRef = useRef<Map<string, TerminalSession>>(new Map())
   const { getActiveTab } = useEditorStore()
   const { rootPath } = useWorkspaceStore()
+  const theme = useConfigStore((s) => s.theme)
+  const accent = useConfigStore((s) => s.accent)
+  const fontFamily = useConfigStore((s) => s.fontFamily)
+  const terminalFontSize = useConfigStore((s) => s.terminalFontSize)
 
   useEffect(() => {
     // Only manage active terminal visibility
@@ -31,17 +140,12 @@ export function TerminalPanel() {
       if (termsRef.current.has(id)) return
       
       const term = new Terminal({
-        theme: {
-          background: '#0d0d0d',
-          foreground: '#e0e0e0',
-          cursor: '#ffffff',
-          selectionBackground: '#264f78',
-        },
-        fontSize: 12,
+        theme: getTerminalTheme(theme, accent),
+        fontSize: terminalFontSize,
         lineHeight: 1.3,
         convertEol: true,
         cursorBlink: true,
-        fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+        fontFamily,
       })
       const fit = new FitAddon()
       term.loadAddon(fit)
@@ -50,14 +154,12 @@ export function TerminalPanel() {
       container.id = `terminal-${id}`
       container.className = 'terminal-instance'
       container.style.height = '100%'
-      container.style.display = id === activeId ? 'block' : 'none'
+      container.style.display = 'none'
       termContainerRef.current?.appendChild(container)
       
       term.open(container)
       fit.fit()
       term.writeln(`\x1b[90m── VS-Monitor Terminal [${id}] Ready ──\x1b[0m`)
-      
-      termsRef.current.set(id, { term, fit })
 
       // Resize handling
       const observer = new ResizeObserver(() => {
@@ -73,11 +175,7 @@ export function TerminalPanel() {
         window.electronAPI.sendTerminalInput(id, data)
       })
 
-      return () => {
-        observer.disconnect()
-        term.dispose()
-        container.remove()
-      }
+      termsRef.current.set(id, { term, fit, observer, container })
     }
 
     terminals.forEach(setupTerminal)
@@ -90,11 +188,35 @@ export function TerminalPanel() {
     return () => {
       cleanup()
     }
-  }, [terminals, activeId, rootPath]) // Re-run when terminal list changes or activeId changes for initial display
+  }, [accent, fontFamily, terminalFontSize, terminals, theme])
+
+  useEffect(() => {
+    const nextTheme = getTerminalTheme(theme, accent)
+
+    termsRef.current.forEach(({ term, fit }) => {
+      term.options.theme = nextTheme
+      term.options.fontFamily = fontFamily
+      term.options.fontSize = terminalFontSize
+      fit.fit()
+    })
+  }, [accent, fontFamily, terminalFontSize, theme])
+
+  useEffect(() => {
+    const sessions = termsRef.current
+
+    return () => {
+      sessions.forEach(({ observer, term, container }) => {
+        observer.disconnect()
+        term.dispose()
+        container.remove()
+      })
+      sessions.clear()
+    }
+  }, [])
 
   const addTerminal = () => {
     const id = `term-${Date.now()}`
-    setTerminals([...terminals, id])
+    setTerminals(prev => [...prev, id])
     setActiveId(id)
     window.electronAPI.createTerminal(id, rootPath || '')
   }
@@ -117,11 +239,12 @@ export function TerminalPanel() {
     
     const t = termsRef.current.get(id)
     if (t) {
+      t.observer.disconnect()
       t.term.dispose()
+      t.container.remove()
       termsRef.current.delete(id)
     }
     window.electronAPI.closeTerminal(id)
-    document.getElementById(`terminal-${id}`)?.remove()
   }
 
   const handleRun = () => {
@@ -129,6 +252,7 @@ export function TerminalPanel() {
     if (!tab) return
     termsRef.current.get(activeId)?.term.clear()
     window.electronAPI.runCode({
+      terminalId: activeId,
       code: tab.content,
       language: tab.language === 'python' ? 'python' : 'javascript',
     })

@@ -36,6 +36,7 @@ export function Tabs({ groupId }: { groupId: string }) {
   const group = useEditorStore(s => s.groups.find(g => g.id === groupId))
   const closeTab = useEditorStore(s => s.closeTab)
   const setActiveGroupId = useEditorStore(s => s.setActiveGroupId)
+  const setActiveTab = useEditorStore(s => s.setActiveTab)
 
   if (!group || group.tabIds.length === 0) return null
 
@@ -53,11 +54,7 @@ export function Tabs({ groupId }: { groupId: string }) {
             key={tab.id}
             className={`tab ${isActive ? 'tab-active' : ''}`}
             onClick={() => {
-              useEditorStore.setState(s => ({
-                groups: s.groups.map(g =>
-                  g.id === groupId ? { ...g, activeTabId: tab.id } : g
-                )
-              }))
+              setActiveTab(groupId, tab.id)
             }}
           >
             <span className="tab-name">

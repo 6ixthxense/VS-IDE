@@ -85,29 +85,28 @@ export function deletePath(targetPath: string): { success: boolean; error?: stri
   }
 }
 
-export function renamePath(oldPath: string, newPath: string): { success: boolean; error?: string } {
+export function renamePath(oldPath: string, newPath: string): { success: boolean; path?: string; error?: string } {
   try {
     if (!fs.existsSync(oldPath)) return { success: false, error: 'Source path does not exist' }
     if (fs.existsSync(newPath)) return { success: false, error: 'Destination path already exists' }
     fs.renameSync(oldPath, newPath)
-    return { success: true }
+    return { success: true, path: newPath }
   } catch (e: unknown) {
     return { success: false, error: (e as Error).message }
   }
 }
 
-export function movePath(oldPath: string, newPath: string): { success: boolean; error?: string } {
+export function movePath(oldPath: string, newPath: string): { success: boolean; path?: string; error?: string } {
   try {
     if (!fs.existsSync(oldPath)) return { success: false, error: 'Source path does not exist' }
     // If destination is a directory, move inside it
-    const stat = fs.statSync(oldPath)
     let finalPath = newPath
     if (fs.existsSync(newPath) && fs.statSync(newPath).isDirectory()) {
        finalPath = path.join(newPath, path.basename(oldPath))
     }
     if (fs.existsSync(finalPath)) return { success: false, error: 'Destination already exists' }
     fs.renameSync(oldPath, finalPath)
-    return { success: true }
+    return { success: true, path: finalPath }
   } catch (e: unknown) {
     return { success: false, error: (e as Error).message }
   }

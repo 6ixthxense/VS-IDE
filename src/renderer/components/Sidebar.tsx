@@ -1,11 +1,17 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { Suspense, lazy, useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { FileEntry } from '@shared/types/file'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useEditorStore } from '../store/editorStore'
-import { SearchPanel } from '../features/search/SearchPanel'
-import { GitPanel } from '../features/git/GitPanel'
 import { useUiStore } from '../store/uiStore'
+import { confirmAction, showErrorToast, showInfoToast, showSuccessToast } from '../store/feedbackStore'
+
+const SearchPanel = lazy(() =>
+  import('../features/search/SearchPanel').then((module) => ({ default: module.SearchPanel }))
+)
+const GitPanel = lazy(() =>
+  import('../features/git/GitPanel').then((module) => ({ default: module.GitPanel }))
+)
 
 interface FileTreeProps {
   entries: FileEntry[]
@@ -149,12 +155,21 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
   }, [expanded, childMap])
 
   const handleDelete = async (path: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return
+    const confirmed = await confirmAction({
+      title: 'Delete item?',
+      message: `This will permanently delete "${name}" from the workspace.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Keep',
+      tone: 'warning',
+    })
+    if (!confirmed) return
+
     const result = await (window.electronAPI as any).deletePath(path)
     if (result.success) {
       await refreshTree()
+      showSuccessToast(`"${name}" was removed.`, 'Deleted')
     } else {
-      alert(`Delete failed: ${result.error}`)
+      showErrorToast(`Delete failed: ${result.error}`, 'Delete failed')
     }
   }
 
@@ -176,8 +191,9 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
     if (result.success) {
       setRenamingPath(null)
       await refreshTree()
+      showSuccessToast(`Renamed to "${name.trim()}".`, 'Rename complete')
     } else {
-      alert(`Rename failed: ${result.error}`)
+      showErrorToast(`Rename failed: ${result.error}`, 'Rename failed')
     }
   }
 
@@ -193,6 +209,7 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
         break
       case 'copyPath':
         navigator.clipboard.writeText(entry.path)
+        showInfoToast('Path copied to clipboard.', 'Copied')
         break
       case 'reveal':
         window.electronAPI.revealInExplorer(entry.path)
@@ -226,8 +243,9 @@ function FileTree({ entries, depth = 0, onNewFileRequest, onNewFolderRequest }: 
     const result = await window.electronAPI.movePath(sourcePath, targetEntry.path)
     if (result.success) {
       await refreshTree()
+      showSuccessToast('Item moved successfully.', 'Move complete')
     } else {
-      alert(`Move failed: ${result.error}`)
+      showErrorToast(`Move failed: ${result.error}`, 'Move failed')
     }
   }
 
@@ -334,6 +352,9 @@ export function Sidebar() {
       setTargetDir(null)
       await refreshTree()
       await useEditorStore.getState().openFile(result.path)
+      showSuccessToast(`Created "${result.path.split(window.electronAPI.isWindows ? '\\' : '/').pop() || 'file'}".`, 'File created')
+    } else if (!result.success) {
+      showErrorToast(`Create file failed: ${result.error}`, 'Create file failed')
     }
   }
 
@@ -346,8 +367,9 @@ export function Sidebar() {
       setNewFolderName('')
       setTargetDir(null)
       await refreshTree()
+      showSuccessToast(`Created "${newFolderName.trim()}".`, 'Folder created')
     } else {
-      alert(`Create folder failed: ${result.error}`)
+      showErrorToast(`Create folder failed: ${result.error}`, 'Create folder failed')
     }
   }
 
@@ -360,6 +382,8 @@ export function Sidebar() {
     setTargetDir(entry.path)
     setNewFolderModal(true)
   }
+
+  const workspaceName = rootPath?.replace(/\\/g, '/').split('/').pop() || 'workspace'
 
   return (
     <aside className="sidebar">
@@ -389,14 +413,51 @@ export function Sidebar() {
 
           {!rootPath ? (
             <div className="sidebar-empty">
-              <button className="open-folder-btn" onClick={openFolder}>
-                <i className="fa-solid fa-folder-open"></i> Open Folder
-              </button>
+              <div className="panel-empty-card">
+                <span className="panel-empty-eyebrow">Explorer</span>
+                <strong>Open a folder to start building</strong>
+                <p>Browse files, create new folders, drag items around, and keep git status visible in one place.</p>
+                <button className="open-folder-btn" onClick={openFolder}>
+                  <i className="fa-solid fa-folder-open"></i> Open Folder
+                </button>
+                <button
+                  className="welcome-secondary-btn sidebar-empty-btn"
+                  onClick={() => useUiStore.setState({ showCommandPalette: true })}
+                >
+                  <i className="fa-solid fa-wand-magic-sparkles"></i> Command Palette
+                </button>
+              </div>
             </div>
           ) : (
             <div className="file-tree">
               {isLoading ? (
                 <div className="loading">Loading...</div>
+              ) : tree.length === 0 ? (
+                <div className="sidebar-empty sidebar-empty-workspace">
+                  <div className="panel-empty-card">
+                    <span className="panel-empty-eyebrow">{workspaceName}</span>
+                    <strong>This folder is ready for its first file</strong>
+                    <p>Create a starter file or add a folder structure so Quick Open and Search have something to work with.</p>
+                    <button
+                      className="open-folder-btn"
+                      onClick={() => {
+                        setTargetDir(null)
+                        setNewFileModal(true)
+                      }}
+                    >
+                      <i className="fa-solid fa-file-circle-plus"></i> New File
+                    </button>
+                    <button
+                      className="welcome-secondary-btn sidebar-empty-btn"
+                      onClick={() => {
+                        setTargetDir(null)
+                        setNewFolderModal(true)
+                      }}
+                    >
+                      <i className="fa-solid fa-folder-plus"></i> New Folder
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <FileTree 
                   entries={tree} 
@@ -448,8 +509,16 @@ export function Sidebar() {
           )}
         </>
       )}
-      {activeSidebarView === 'search' && <SearchPanel />}
-      {activeSidebarView === 'git' && <GitPanel />}
+      {activeSidebarView === 'search' && (
+        <Suspense fallback={<div className="loading">Loading search...</div>}>
+          <SearchPanel />
+        </Suspense>
+      )}
+      {activeSidebarView === 'git' && (
+        <Suspense fallback={<div className="loading">Loading source control...</div>}>
+          <GitPanel />
+        </Suspense>
+      )}
     </aside>
   )
 }

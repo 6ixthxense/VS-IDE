@@ -1,5 +1,15 @@
 import type { FileEntry } from './file'
 
+export interface DiskStat {
+  id: string
+  name: string
+  filesystem: string
+  mount: string
+  use: string
+  size: string
+  used: string
+}
+
 export interface SysStats {
   cpu: string
   ram: string
@@ -11,11 +21,36 @@ export interface SysStats {
     memTotal: number
     memUsed: number
   } | null
-  disk: { use: string; size: string; used: string } | null
+  disks: DiskStat[]
   processes: { name: string; cpu: string; mem: string; pid: number }[]
 }
 
+export interface TerminalOutputEvent {
+  id: string
+  data: string
+}
+
+export interface WorkspaceChangedEvent {
+  timestamp: number
+}
+
+export interface SearchOptions {
+  caseSensitive: boolean
+  wholeWord: boolean
+  useRegex: boolean
+  includePattern?: string
+  excludePattern?: string
+}
+
+export interface SearchResult {
+  path: string
+  name: string
+  line: number
+  match: string
+}
+
 export interface RunCodePayload {
+  terminalId: string
   code: string
   language: 'javascript' | 'python'
 }
@@ -24,6 +59,12 @@ export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untr
 
 export interface GitStatus {
   [filePath: string]: GitFileStatus
+}
+
+export interface GitDiffRequest {
+  filePath: string
+  staged?: boolean
+  status?: GitFileStatus | string
 }
 
 export interface ElectronAPI {
@@ -40,21 +81,32 @@ export interface ElectronAPI {
   isWindows: boolean
   pathExists: (path: string) => Promise<boolean>
   getWorkspace: () => Promise<string>
+  setWorkspaceRoot: (path: string | null) => Promise<string | null>
   runCode: (payload: RunCodePayload) => void
   onSysStats: (cb: (stats: SysStats) => void) => () => void
+  onWorkspaceChanged: (cb: (event: WorkspaceChangedEvent) => void) => () => void
   sendTerminalInput: (id: string, data: string) => void
   resizeTerminal: (id: string, cols: number, rows: number) => void
   setTerminalCwd: (id: string, path: string) => void
   createTerminal: (id: string, rootPath: string) => void
   closeTerminal: (id: string) => void
-  onTerminalOut: (cb: (data: { id: string; data: string }) => void) => () => void
+  onTerminalOut: (cb: (data: TerminalOutputEvent) => void) => () => void
   getGitStatus: (rootPath: string) => Promise<GitStatus>
   gitAdd: (rootPath: string, filePaths: string[]) => Promise<boolean>
+  gitUnstage: (rootPath: string, filePaths: string[]) => Promise<boolean>
+  gitDiscard: (rootPath: string, request: GitDiffRequest) => Promise<boolean>
   gitCommit: (rootPath: string, message: string) => Promise<boolean>
   gitPush: (rootPath: string) => Promise<boolean>
   gitPull: (rootPath: string) => Promise<boolean>
-  searchFiles: (query: string, rootPath: string) => Promise<{ path: string; name: string; line: number; match: string }[]>
-  replaceInFiles: (query: string, replacement: string, rootPath: string, targetPath?: string) => Promise<{ success: boolean; count: number; error?: string }>
+  getGitDiff: (rootPath: string, request: GitDiffRequest) => Promise<string>
+  searchFiles: (query: string, rootPath: string, options?: Partial<SearchOptions>) => Promise<SearchResult[]>
+  replaceInFiles: (
+    query: string,
+    replacement: string,
+    rootPath: string,
+    options?: Partial<SearchOptions>,
+    targetPath?: string
+  ) => Promise<{ success: boolean; count: number; error?: string }>
   getAllFiles: (rootPath: string) => Promise<string[]>
 }
 

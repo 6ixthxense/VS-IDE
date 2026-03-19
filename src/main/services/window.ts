@@ -2,6 +2,8 @@ import { BrowserWindow } from 'electron'
 import path from 'path'
 
 export function createWindow(): BrowserWindow {
+  const isDevelopment = process.env.NODE_ENV === 'development'
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -14,10 +16,12 @@ export function createWindow(): BrowserWindow {
       preload: path.join(__dirname, '../../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      devTools: isDevelopment,
     },
   })
 
-  if (process.env.NODE_ENV === 'development') {
+  if (isDevelopment) {
     win.loadURL('http://localhost:5173')
     // win.webContents.openDevTools({ mode: 'detach' })
   } else {

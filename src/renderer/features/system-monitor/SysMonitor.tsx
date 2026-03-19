@@ -9,6 +9,7 @@ export function SysMonitor({ stats }: SysMonitorProps) {
   const history = useSysStore(s => s.history)
   const cpuPercent = parseFloat(stats?.cpu ?? '0')
   const ramPercent = parseFloat(stats?.ram ?? '0')
+  const disks = stats?.disks ?? []
 
   const getStatusColor = (percent: number) => {
     if (percent > 85) return 'var(--danger)'
@@ -85,19 +86,42 @@ export function SysMonitor({ stats }: SysMonitorProps) {
         {renderChart(history.ram, '#00cc66')}
       </div>
 
-      {stats?.disk && (
-        <div className="sys-card">
-          <div className="sys-row">
-            <div className="sys-title">
-              <i className="fa-solid fa-hard-drive" style={{ color: '#ff9900' }}></i>
-              <span>DISK</span>
-            </div>
-            <span className="sys-value">{stats.disk.used} / {stats.disk.size} GB</span>
+      {disks.length > 0 && (
+        <>
+          <div className="sys-header">
+            <i className="fa-solid fa-hard-drive"></i> STORAGE
           </div>
-          <div className="disk-bar">
-            <div className="disk-fill disk-fill-bar" style={{ width: `${stats.disk.use}%` }} />
-          </div>
-        </div>
+          {disks.map((disk) => {
+            const diskPercent = parseFloat(disk.use)
+            const diskSecondary = disk.filesystem && disk.filesystem !== disk.name
+              ? disk.filesystem
+              : disk.mount && disk.mount !== disk.name
+                ? disk.mount
+                : ''
+
+            return (
+              <div key={disk.id} className="sys-card" style={{ '--border-g': getStatusColor(diskPercent) } as any}>
+                <div className="sys-row">
+                  <div className="sys-title-block">
+                    <div className="sys-title">
+                      <i className="fa-solid fa-hard-drive" style={{ color: '#ff9900' }}></i>
+                      <span>{disk.name}</span>
+                    </div>
+                    {diskSecondary && <div className="sys-subtitle">{diskSecondary}</div>}
+                  </div>
+                  <span className="sys-value">{disk.use}%</span>
+                </div>
+                <div className="disk-bar">
+                  <div className="disk-fill disk-fill-bar" style={{ width: `${diskPercent}%` }} />
+                </div>
+                <div className="sys-meta">
+                  <span>{disk.used} / {disk.size} GB</span>
+                  {diskSecondary && <span>{diskSecondary}</span>}
+                </div>
+              </div>
+            )
+          })}
+        </>
       )}
 
       {stats?.gpu ? (

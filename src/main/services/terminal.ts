@@ -1,7 +1,6 @@
 import * as pty from 'node-pty'
 import { BrowserWindow } from 'electron'
 import { IPC } from '../../shared/constants/index'
-import path from 'path'
 
 export class TerminalService {
   private static instance: TerminalService
@@ -82,7 +81,7 @@ export class TerminalService {
     if (ptyProcess) {
       try {
         ptyProcess.resize(cols, rows)
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }

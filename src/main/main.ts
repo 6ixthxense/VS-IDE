@@ -1,13 +1,25 @@
-import { app, BrowserWindow, protocol, net, ipcMain } from 'electron'
+import { app, BrowserWindow, protocol } from 'electron'
 import si from 'systeminformation'
 import path from 'path'
-import url from 'url'
 import { createWindow } from './services/window'
 import { registerFileHandlers } from './ipc/file'
 import { registerWorkspaceHandlers } from './ipc/workspace'
 import { registerTerminalHandlers } from './ipc/terminal'
+import { buildSysStats } from './services/systemMonitor'
+import { workspaceFileIndex } from './services/fileIndex'
+import { IPC } from '../shared/constants/index'
 
 let mainWindow: BrowserWindow | null = null
+const isDevelopment = process.env.NODE_ENV === 'development'
+let stopWorkspaceChangeBridge: (() => void) | null = null
+
+function isAllowedNavigation(url: string) {
+  if (isDevelopment) {
+    return url.startsWith('http://localhost:5173')
+  }
+
+  return url.startsWith('app://')
+}
 
 function startSysMonitor() {
   const poll = async () => {
@@ -15,45 +27,29 @@ function startSysMonitor() {
     try {
       const load = await si.currentLoad()
       const mem = await si.mem()
-      const gpu = await si.graphics()
-      const disk = await si.fsSize()
+      const graphics = await si.graphics()
+      const disks = await si.fsSize()
       const processes = await si.processes()
 
-      const topProcesses = processes.list
-        .sort((a, b) => b.cpu - a.cpu)
-        .slice(0, 5)
-        .map(p => ({
-          name: p.name,
-          cpu: p.cpu.toFixed(1),
-          mem: p.mem.toFixed(1),
-          pid: p.pid
-        }))
-
-      const activeGpu = gpu.controllers.find((c: any) => 
-        c.vendor?.toLowerCase().includes('nvidia') || 
-        c.model?.toLowerCase().includes('rtx')
-      ) || gpu.controllers[0];
-
-      mainWindow.webContents.send('sys-stats', {
-        cpu: load.currentLoad.toFixed(1),
-        ram: (mem.used / mem.total * 100).toFixed(1),
-        ramText: (mem.used / 1024 ** 3).toFixed(1) + ' / ' + (mem.total / 1024 ** 3).toFixed(1) + ' GB',
-        gpuName: activeGpu?.model ?? 'N/A',
-        gpu: activeGpu ? {
-          load: activeGpu.utilizationGpu ?? 0,
-          temp: activeGpu.temperatureGpu ?? 0,
-          memTotal: activeGpu.memoryTotal ?? 0,
-          memUsed: activeGpu.memoryUsed ?? 0
-        } : null,
-        disk: disk[0]
-          ? { use: disk[0].use.toFixed(1), size: (disk[0].size / 1024 ** 3).toFixed(0), used: (disk[0].used / 1024 ** 3).toFixed(0) }
-          : null,
-        processes: topProcesses,
-      })
+      mainWindow.webContents.send('sys-stats', buildSysStats({
+        load,
+        mem,
+        graphics,
+        disks,
+        processes,
+      }))
     } catch { /* ignore */ }
     setTimeout(poll, 2000)
   }
   poll()
+}
+
+function bridgeWorkspaceChanges() {
+  stopWorkspaceChangeBridge?.()
+  stopWorkspaceChangeBridge = workspaceFileIndex.subscribe(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send(IPC.WORKSPACE_CHANGED, { timestamp: Date.now() })
+  })
 }
 
 function getMimeType(filePath: string): string {
@@ -73,6 +69,18 @@ function getMimeType(filePath: string): string {
     '.ttf': 'font/ttf',
   }
   return map[ext] ?? 'application/octet-stream'
+}
+
+function resolveRendererAssetPath(requestPath: string): string {
+  const rendererRoot = path.resolve(__dirname, '../../dist-renderer')
+  const assetPath = path.resolve(rendererRoot, requestPath)
+  const relativePath = path.relative(rendererRoot, assetPath)
+
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('Invalid renderer asset path')
+  }
+
+  return assetPath
 }
 
 // Register custom scheme to allow loading assets with "app://" privileges (fixes Vite module bugs)
@@ -97,7 +105,7 @@ app.whenReady().then(() => {
       if (pathName.startsWith('/')) pathName = pathName.slice(1)
       if (!pathName || pathName === '/') pathName = 'index.html'
       
-      const filePath = path.join(__dirname, '../../dist-renderer', pathName)
+      const filePath = resolveRendererAssetPath(pathName)
       
       if (fs.existsSync(filePath)) {
         const buffer = fs.readFileSync(filePath)
@@ -120,17 +128,20 @@ app.whenReady().then(() => {
   registerFileHandlers()
   registerWorkspaceHandlers()
   registerTerminalHandlers()
+  bridgeWorkspaceChanges()
 
   mainWindow = createWindow()
   startSysMonitor()
-
-  // FORCE DEVTOOLS IN PROD FOR DEBUGGING
-  if (process.env.NODE_ENV !== 'development') {
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
-  }
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedNavigation(url)) {
+      event.preventDefault()
+    }
+  })
 
   // Logger for renderer console errors
   mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    if (!isDevelopment) return
     const logPath = path.join(app.getPath('userData'), 'renderer_errors.txt')
     const logLine = `[Lvl:${level}] ${message} (at ${sourceId}:${line})\n`
     try { fs.appendFileSync(logPath, logLine) } catch {}
@@ -145,4 +156,9 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     mainWindow = createWindow()
   }
+})
+
+app.on('before-quit', () => {
+  stopWorkspaceChangeBridge?.()
+  stopWorkspaceChangeBridge = null
 })
