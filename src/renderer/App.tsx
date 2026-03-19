@@ -274,9 +274,11 @@ export default function App() {
         )}
 
         <div className="center-column" style={{ flex: 1, minWidth: 0 }}>
-          <Suspense fallback={<PanelLoading label="Loading editor..." />}>
-            <EditorPane />
-          </Suspense>
+          <div className="editor-shell">
+            <Suspense fallback={<PanelLoading label="Loading editor..." />}>
+              <EditorPane />
+            </Suspense>
+          </div>
           <div className="terminal-wrapper" style={{ 
             height: terminalHeight, 
             flexShrink: 0,
