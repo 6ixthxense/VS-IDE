@@ -7,7 +7,7 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import { useEditorStore } from '../store/editorStore'
 import { useProblemsStore } from '../store/problemsStore'
-import { useUiStore } from '../store/uiStore'
+import { useUiStore, type EditorActionType } from '../store/uiStore'
 import { useConfigStore } from '../store/configStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { showErrorToast, showInfoToast, showSuccessToast } from '../store/feedbackStore'
@@ -546,9 +546,14 @@ export function MonacoEditorSurface({ filePath, language, initialContent }: Mona
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const renameInputRef = useRef<HTMLInputElement | null>(null)
   const editorDisposablesRef = useRef<monaco.IDisposable[]>([])
+  const lastHandledEditorActionIdRef = useRef<string | null>(null)
+  const editorActionRunnerRef = useRef<(type: EditorActionType) => Promise<void>>(async () => {})
+  const activeTabPath = useEditorStore((state) => state.getActiveTab()?.path)
   const setCursorPos = useUiStore((state) => state.setCursorPos)
   const pendingEditorTarget = useUiStore((state) => state.pendingEditorTarget)
+  const pendingEditorAction = useUiStore((state) => state.pendingEditorAction)
   const clearPendingEditorTarget = useUiStore((state) => state.clearPendingEditorTarget)
+  const clearPendingEditorAction = useUiStore((state) => state.clearPendingEditorAction)
   const openFile = useEditorStore((state) => state.openFile)
   const saveTab = useEditorStore((state) => state.saveTab)
   const currentTab = useEditorStore((state) => state.tabs.find((tab) => tab.id === filePath))
@@ -908,6 +913,42 @@ export function MonacoEditorSurface({ filePath, language, initialContent }: Mona
       showErrorToast(message, 'Rename failed')
     }
   }
+
+  editorActionRunnerRef.current = async (type) => {
+    if (type === 'goToDefinition') {
+      await goToDefinition()
+      return
+    }
+
+    if (type === 'findReferences') {
+      await showReferences()
+      return
+    }
+
+    await openRename()
+  }
+
+  useEffect(() => {
+    if (!pendingEditorAction || pendingEditorAction.targetFilePath !== filePath || activeTabPath !== filePath) {
+      return
+    }
+
+    if (lastHandledEditorActionIdRef.current === pendingEditorAction.id) {
+      return
+    }
+
+    lastHandledEditorActionIdRef.current = pendingEditorAction.id
+
+    const runAction = async () => {
+      try {
+        await editorActionRunnerRef.current(pendingEditorAction.type)
+      } finally {
+        clearPendingEditorAction()
+      }
+    }
+
+    void runAction()
+  }, [activeTabPath, clearPendingEditorAction, filePath, pendingEditorAction])
 
   useEffect(() => {
     if (!autoSave || !currentTab || currentTab.content === currentTab.savedContent) return

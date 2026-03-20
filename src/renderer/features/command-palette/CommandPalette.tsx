@@ -63,6 +63,7 @@ export function CommandPalette() {
   const toggleSidebar = useUiStore((state) => state.toggleSidebar)
   const toggleDiagnosticsModal = useUiStore((state) => state.toggleDiagnosticsModal)
   const showSidebarView = useUiStore((state) => state.showSidebarView)
+  const requestEditorAction = useUiStore((state) => state.requestEditorAction)
   const appInfo = useUiStore((state) => state.appInfo)
   const updateStatus = useUiStore((state) => state.updateStatus)
 
@@ -81,6 +82,10 @@ export function CommandPalette() {
   const setTheme = useConfigStore((state) => state.setTheme)
 
   const activeTab = getActiveTab()
+  const isMonacoSymbolActionsAvailable = Boolean(
+    activeTab
+    && (activeTab.language === 'javascript' || activeTab.language === 'typescript')
+  )
 
   const closePalette = () => useUiStore.setState({ showCommandPalette: false })
 
@@ -129,6 +134,11 @@ export function CommandPalette() {
   const setAppTheme = (nextTheme: ThemeName) => {
     setTheme(nextTheme)
     showSuccessToast(`Theme switched to ${nextTheme}.`, 'Appearance updated')
+  }
+
+  const runActiveEditorAction = (type: 'goToDefinition' | 'findReferences' | 'renameSymbol') => {
+    if (!activeTab) return
+    requestEditorAction(type, activeTab.path)
   }
 
   const checkForUpdates = async () => {
@@ -240,6 +250,45 @@ export function CommandPalette() {
       disabled: !activeTab,
       action: () => {
         splitGroup(activeGroupId, 'horizontal')
+      },
+    },
+    {
+      id: 'go-to-definition',
+      label: 'Go to Definition',
+      icon: 'fa-solid fa-arrow-up-right-from-square',
+      category: 'Editor',
+      description: 'Jump to the symbol definition from the active JavaScript or TypeScript editor.',
+      shortcut: 'F12',
+      keywords: ['symbol', 'definition', 'typescript', 'monaco'],
+      disabled: !isMonacoSymbolActionsAvailable,
+      action: () => {
+        runActiveEditorAction('goToDefinition')
+      },
+    },
+    {
+      id: 'find-references',
+      label: 'Find References',
+      icon: 'fa-solid fa-diagram-project',
+      category: 'Editor',
+      description: 'Show symbol references from the active JavaScript or TypeScript editor.',
+      shortcut: 'Shift+F12',
+      keywords: ['references', 'symbol', 'typescript', 'monaco'],
+      disabled: !isMonacoSymbolActionsAvailable,
+      action: () => {
+        runActiveEditorAction('findReferences')
+      },
+    },
+    {
+      id: 'rename-symbol',
+      label: 'Rename Symbol',
+      icon: 'fa-solid fa-i-cursor',
+      category: 'Editor',
+      description: 'Rename the symbol under the cursor in the active JavaScript or TypeScript editor.',
+      shortcut: 'F2',
+      keywords: ['rename', 'symbol', 'typescript', 'monaco'],
+      disabled: !isMonacoSymbolActionsAvailable,
+      action: () => {
+        runActiveEditorAction('renameSymbol')
       },
     },
     {

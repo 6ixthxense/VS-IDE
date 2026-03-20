@@ -4,6 +4,7 @@ import { normalizeSysStats } from '../utils/sysStats'
 import { readWorkbenchUi, writeWorkbenchUi } from '../utils/workbenchPersistence'
 
 export type SidebarView = 'explorer' | 'search' | 'git' | 'database' | 'problems' | 'tasks'
+export type EditorActionType = 'goToDefinition' | 'findReferences' | 'renameSymbol'
 
 interface CursorPos {
   line: number
@@ -16,6 +17,12 @@ interface PendingEditorTarget {
   column?: number
 }
 
+interface PendingEditorAction {
+  id: string
+  type: EditorActionType
+  targetFilePath: string
+}
+
 interface UiState {
   showTerminal: boolean
   showCommandPalette: boolean
@@ -23,6 +30,7 @@ interface UiState {
   sysStats: SysStats | null
   cursorPos: CursorPos
   pendingEditorTarget: PendingEditorTarget | null
+  pendingEditorAction: PendingEditorAction | null
   activeSidebarView: SidebarView
   showSettingsModal: boolean
   showDiagnosticsModal: boolean
@@ -38,6 +46,8 @@ interface UiState {
   setCursorPos: (pos: CursorPos) => void
   setPendingEditorTarget: (target: PendingEditorTarget | null) => void
   clearPendingEditorTarget: () => void
+  requestEditorAction: (type: EditorActionType, targetFilePath: string) => void
+  clearPendingEditorAction: () => void
   setActiveSidebarView: (view: SidebarView) => void
   showSidebarView: (view: SidebarView) => void
   toggleSettingsModal: () => void
@@ -64,6 +74,7 @@ export const useUiStore = create<UiState>((set) => ({
   sysStats: null,
   cursorPos: { line: 1, col: 1 },
   pendingEditorTarget: null,
+  pendingEditorAction: null,
   activeSidebarView: 'explorer',
   showSettingsModal: false,
   showDiagnosticsModal: false,
@@ -99,6 +110,14 @@ export const useUiStore = create<UiState>((set) => ({
   setCursorPos: (cursorPos) => set({ cursorPos }),
   setPendingEditorTarget: (pendingEditorTarget) => set({ pendingEditorTarget }),
   clearPendingEditorTarget: () => set({ pendingEditorTarget: null }),
+  requestEditorAction: (type, targetFilePath) => set({
+    pendingEditorAction: {
+      id: `editor-action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type,
+      targetFilePath,
+    },
+  }),
+  clearPendingEditorAction: () => set({ pendingEditorAction: null }),
   setActiveSidebarView: (activeSidebarView) => set((state) => {
     persistUiState({ ...state, activeSidebarView })
     return { activeSidebarView }
