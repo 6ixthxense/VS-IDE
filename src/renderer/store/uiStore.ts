@@ -20,7 +20,7 @@ interface UiState {
   sysStats: SysStats | null
   cursorPos: CursorPos
   pendingEditorTarget: PendingEditorTarget | null
-  activeSidebarView: 'explorer' | 'search' | 'git'
+  activeSidebarView: 'explorer' | 'search' | 'git' | 'database'
   showSettingsModal: boolean
   showDiagnosticsModal: boolean
   showSidebar: boolean
@@ -35,8 +35,8 @@ interface UiState {
   setCursorPos: (pos: CursorPos) => void
   setPendingEditorTarget: (target: PendingEditorTarget | null) => void
   clearPendingEditorTarget: () => void
-  setActiveSidebarView: (view: 'explorer' | 'search' | 'git') => void
-  showSidebarView: (view: 'explorer' | 'search' | 'git') => void
+  setActiveSidebarView: (view: 'explorer' | 'search' | 'git' | 'database') => void
+  showSidebarView: (view: 'explorer' | 'search' | 'git' | 'database') => void
   toggleSettingsModal: () => void
   toggleDiagnosticsModal: () => void
   toggleSidebar: () => void

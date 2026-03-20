@@ -6,11 +6,14 @@ import { registerAppHandlers } from './ipc/app'
 import { registerFileHandlers } from './ipc/file'
 import { registerWorkspaceHandlers } from './ipc/workspace'
 import { registerTerminalHandlers } from './ipc/terminal'
+import { registerSqlHandlers } from './ipc/sql'
 import { buildSysStats } from './services/systemMonitor'
 import { workspaceFileIndex } from './services/fileIndex'
 import { IPC } from '../shared/constants/index'
 import { updateService } from './services/updater'
 import { diagnosticsService } from './services/diagnostics'
+import { sqlService } from './services/sql'
+import { SqliteAdapter } from './services/sqliteAdapter'
 
 let mainWindow: BrowserWindow | null = null
 const isDevelopment = process.env.NODE_ENV === 'development'
@@ -137,6 +140,8 @@ app.whenReady().then(() => {
   registerFileHandlers()
   registerWorkspaceHandlers()
   registerTerminalHandlers()
+  sqlService.registerAdapter(new SqliteAdapter())
+  registerSqlHandlers()
   registerAppHandlers()
   bridgeWorkspaceChanges()
 
@@ -196,4 +201,5 @@ app.on('activate', () => {
 app.on('before-quit', () => {
   stopWorkspaceChangeBridge?.()
   stopWorkspaceChangeBridge = null
+  sqlService.dispose()
 })

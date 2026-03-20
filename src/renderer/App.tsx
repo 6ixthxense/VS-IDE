@@ -17,6 +17,9 @@ import { normalizeSysStats } from './utils/sysStats'
 const EditorPane = lazy(() =>
   import('./components/EditorPane').then((module) => ({ default: module.EditorPane }))
 )
+const DatabaseWorkspace = lazy(() =>
+  import('./features/database/DatabasePanel').then((module) => ({ default: module.DatabaseWorkspace }))
+)
 const TerminalPanel = lazy(() =>
   import('./components/TerminalPanel').then((module) => ({ default: module.TerminalPanel }))
 )
@@ -49,6 +52,7 @@ export default function App() {
   const showQuickOpen = useUiStore((s) => s.showQuickOpen)
   const showSettingsModal = useUiStore((s) => s.showSettingsModal)
   const showDiagnosticsModal = useUiStore((s) => s.showDiagnosticsModal)
+  const activeSidebarView = useUiStore((s) => s.activeSidebarView)
   const setAppInfo = useUiStore((s) => s.setAppInfo)
   const setUpdateStatus = useUiStore((s) => s.setUpdateStatus)
   const theme = useConfigStore((s) => s.theme)
@@ -276,7 +280,7 @@ export default function App() {
         <div className="center-column" style={{ flex: 1, minWidth: 0 }}>
           <div className="editor-shell">
             <Suspense fallback={<PanelLoading label="Loading editor..." />}>
-              <EditorPane />
+              {activeSidebarView === 'database' ? <DatabaseWorkspace /> : <EditorPane />}
             </Suspense>
           </div>
           <div className="terminal-wrapper" style={{ 

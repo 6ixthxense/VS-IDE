@@ -2,7 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/constants'
 import type { AppInfo, DiagnosticsSnapshot, ElectronAPI, GitDiffRequest, GitStatus, OperationResult, PathOperationResult, RunCodePayload, SearchOptions, SearchResult, SysStats, TerminalOutputEvent, TerminalStatusEvent, UpdateStatusEvent, WorkspaceChangedEvent } from '../shared/types/ipc'
 import type { FileEntry } from '../shared/types/file'
-import { normalizeRunCodePayload, normalizeSearchOptions, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
+import type { SqlBrowseTableRequest, SqlDeleteRowRequest, SqlInsertRowRequest, SqlMutationResult, SqlQueryRequest, SqlQueryResult, SqlSchemaSummary, SqlServiceStatus, SqlTableRowsResult, SqlUpdateRowRequest } from '../shared/types/sql'
+import { normalizeRunCodePayload, normalizeSearchOptions, normalizeSqlBrowseTableRequest, normalizeSqlDeleteRowRequest, normalizeSqlInsertRowRequest, normalizeSqlQueryRequest, normalizeSqlUpdateRowRequest, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args) as Promise<T>
@@ -184,6 +185,27 @@ const api: ElectronAPI = Object.freeze({
 
   onUpdateStatus: (cb: (event: UpdateStatusEvent) => void) =>
     subscribe<UpdateStatusEvent>(IPC.APP_UPDATE_STATUS, cb),
+
+  getSqlStatus: () =>
+    invoke<SqlServiceStatus>(IPC.SQL_GET_STATUS),
+
+  executeSqlQuery: (request: SqlQueryRequest) =>
+    invoke<SqlQueryResult>(IPC.SQL_EXECUTE_QUERY, normalizeSqlQueryRequest(request)),
+
+  getSqlSchema: (connectionId: string) =>
+    invoke<SqlSchemaSummary>(IPC.SQL_GET_SCHEMA, requireIdentifier(connectionId, 'SQL connection id')),
+
+  getSqlTableRows: (request: SqlBrowseTableRequest) =>
+    invoke<SqlTableRowsResult>(IPC.SQL_GET_TABLE_ROWS, normalizeSqlBrowseTableRequest(request)),
+
+  updateSqlRow: (request: SqlUpdateRowRequest) =>
+    invoke<SqlMutationResult>(IPC.SQL_UPDATE_ROW, normalizeSqlUpdateRowRequest(request)),
+
+  insertSqlRow: (request: SqlInsertRowRequest) =>
+    invoke<SqlMutationResult>(IPC.SQL_INSERT_ROW, normalizeSqlInsertRowRequest(request)),
+
+  deleteSqlRow: (request: SqlDeleteRowRequest) =>
+    invoke<SqlMutationResult>(IPC.SQL_DELETE_ROW, normalizeSqlDeleteRowRequest(request)),
 
   isWindows: process.platform === 'win32',
 })

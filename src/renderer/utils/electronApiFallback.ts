@@ -15,6 +15,18 @@ import type {
   WorkspaceChangedEvent,
 } from '@shared/types/ipc'
 import type { FileEntry } from '@shared/types/file'
+import type {
+  SqlBrowseTableRequest,
+  SqlDeleteRowRequest,
+  SqlInsertRowRequest,
+  SqlMutationResult,
+  SqlQueryRequest,
+  SqlQueryResult,
+  SqlSchemaSummary,
+  SqlServiceStatus,
+  SqlTableRowsResult,
+  SqlUpdateRowRequest,
+} from '@shared/types/sql'
 
 function failedOperation(error: string, details: string): OperationResult {
   return { success: false, error, details }
@@ -38,6 +50,67 @@ function emptyDiagnostics(): DiagnosticsSnapshot {
     userDataPath: '',
     logFilePath: '',
     entries: [],
+  }
+}
+
+function emptySqlStatus(): SqlServiceStatus {
+  return {
+    phase: 'scaffold',
+    supportedDialects: ['sqlite', 'postgres', 'mysql'],
+    registeredDialects: [],
+    connections: [],
+    features: {
+      editor: true,
+      queryRunner: false,
+      schemaBrowser: false,
+      rowEditing: false,
+      savedQueries: false,
+      explainPlan: false,
+    },
+    message: unavailableDetails(),
+  }
+}
+
+function unavailableSqlResult(connectionId: string, details: string): SqlQueryResult {
+  return {
+    connectionId,
+    success: false,
+    columns: [],
+    rows: [],
+    rowCount: 0,
+    durationMs: 0,
+    error: details,
+  }
+}
+
+function unavailableSqlSchema(connectionId: string, details: string): SqlSchemaSummary {
+  return {
+    connectionId,
+    tables: [],
+    columnsByTable: {},
+    error: details,
+  }
+}
+
+function unavailableSqlTableRows(connectionId: string, tableId: string, details: string): SqlTableRowsResult {
+  return {
+    connectionId,
+    tableId,
+    columns: [],
+    rows: [],
+    writable: false,
+    totalRows: 0,
+    error: details,
+  }
+}
+
+function unavailableSqlMutation(connectionId: string, tableId: string, details: string): SqlMutationResult {
+  return {
+    connectionId,
+    tableId,
+    success: false,
+    rowCount: 0,
+    error: details,
   }
 }
 
@@ -96,6 +169,13 @@ export function createElectronApiFallback(): ElectronAPI {
     checkForUpdates: async () => failedOperation('Unable to check for updates', details),
     installUpdate: async () => failedOperation('Unable to install update', details),
     onUpdateStatus: (_cb: (event: UpdateStatusEvent) => void) => noopUnsubscribe(),
+    getSqlStatus: async (): Promise<SqlServiceStatus> => emptySqlStatus(),
+    executeSqlQuery: async (request: SqlQueryRequest) => unavailableSqlResult(request.connectionId, details),
+    getSqlSchema: async (connectionId: string) => unavailableSqlSchema(connectionId, details),
+    getSqlTableRows: async (request: SqlBrowseTableRequest) => unavailableSqlTableRows(request.connectionId, request.tableId, details),
+    updateSqlRow: async (request: SqlUpdateRowRequest) => unavailableSqlMutation(request.connectionId, request.tableId, details),
+    insertSqlRow: async (request: SqlInsertRowRequest) => unavailableSqlMutation(request.connectionId, request.tableId, details),
+    deleteSqlRow: async (request: SqlDeleteRowRequest) => unavailableSqlMutation(request.connectionId, request.tableId, details),
   }
 }
 

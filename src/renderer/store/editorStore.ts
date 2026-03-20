@@ -40,7 +40,7 @@ function getLanguage(path: string): string {
   const map: Record<string, string> = {
     js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript',
     py: 'python', json: 'json', html: 'html', css: 'css', md: 'markdown',
-    yml: 'yaml', yaml: 'yaml', sh: 'shell', txt: 'plaintext',
+    yml: 'yaml', yaml: 'yaml', sql: 'sql', sh: 'shell', txt: 'plaintext',
   }
   return map[ext] ?? 'plaintext'
 }

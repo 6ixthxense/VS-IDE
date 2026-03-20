@@ -12,6 +12,9 @@ const SearchPanel = lazy(() =>
 const GitPanel = lazy(() =>
   import('../features/git/GitPanel').then((module) => ({ default: module.GitPanel }))
 )
+const DatabasePanel = lazy(() =>
+  import('../features/database/DatabasePanel').then((module) => ({ default: module.DatabasePanel }))
+)
 
 interface FileTreeProps {
   entries: FileEntry[]
@@ -517,6 +520,11 @@ export function Sidebar() {
       {activeSidebarView === 'git' && (
         <Suspense fallback={<div className="loading">Loading source control...</div>}>
           <GitPanel />
+        </Suspense>
+      )}
+      {activeSidebarView === 'database' && (
+        <Suspense fallback={<div className="loading">Loading database tools...</div>}>
+          <DatabasePanel />
         </Suspense>
       )}
     </aside>

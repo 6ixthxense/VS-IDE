@@ -1,4 +1,16 @@
 import type { FileEntry } from './file'
+import type {
+  SqlBrowseTableRequest,
+  SqlDeleteRowRequest,
+  SqlInsertRowRequest,
+  SqlMutationResult,
+  SqlQueryRequest,
+  SqlQueryResult,
+  SqlSchemaSummary,
+  SqlServiceStatus,
+  SqlTableRowsResult,
+  SqlUpdateRowRequest,
+} from './sql'
 
 export interface DiskStat {
   id: string
@@ -167,6 +179,13 @@ export interface ElectronAPI {
   checkForUpdates: () => Promise<OperationResult>
   installUpdate: () => Promise<OperationResult>
   onUpdateStatus: (cb: (event: UpdateStatusEvent) => void) => () => void
+  getSqlStatus: () => Promise<SqlServiceStatus>
+  executeSqlQuery: (request: SqlQueryRequest) => Promise<SqlQueryResult>
+  getSqlSchema: (connectionId: string) => Promise<SqlSchemaSummary>
+  getSqlTableRows: (request: SqlBrowseTableRequest) => Promise<SqlTableRowsResult>
+  updateSqlRow: (request: SqlUpdateRowRequest) => Promise<SqlMutationResult>
+  insertSqlRow: (request: SqlInsertRowRequest) => Promise<SqlMutationResult>
+  deleteSqlRow: (request: SqlDeleteRowRequest) => Promise<SqlMutationResult>
 }
 
 declare global {

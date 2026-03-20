@@ -4,7 +4,7 @@ import { useUiStore } from '../store/uiStore'
 export function ActivityBar() {
   const { activeSidebarView, setActiveSidebarView, showSidebar, toggleSidebar, toggleSysMonitor, toggleSettingsModal } = useUiStore()
 
-  const handleTabClick = (view: 'explorer' | 'search' | 'git') => {
+  const handleTabClick = (view: 'explorer' | 'search' | 'git' | 'database') => {
     if (activeSidebarView === view) {
       toggleSidebar()
     } else {
@@ -36,6 +36,13 @@ export function ActivityBar() {
           title="Source Control"
         >
           <i className="fa-solid fa-code-branch"></i>
+        </button>
+        <button
+          className={`activity-btn ${activeSidebarView === 'database' && showSidebar ? 'active' : ''}`}
+          onClick={() => handleTabClick('database')}
+          title="Database"
+        >
+          <i className="fa-solid fa-database"></i>
         </button>
         <button className="activity-btn" onClick={toggleSysMonitor} title="Toggle System Monitor">
           <i className="fa-solid fa-chart-line"></i>

@@ -41,6 +41,10 @@ async function loadLanguageExtensions(language: string): Promise<Extension[]> {
       const { yaml } = await import('@codemirror/lang-yaml')
       return [yaml()]
     }
+    case 'sql': {
+      const { sql } = await import('@codemirror/lang-sql')
+      return [sql()]
+    }
     default:
       return []
   }
