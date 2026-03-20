@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { SqlBrowseFilter, SqlColumnMetadata, SqlFilterOperator, SqlRowLocator, SqlTableRow, SqlTableRowsResult, SqlTableSummary } from '@shared/types/sql'
+import type { SqlBrowseFilter, SqlColumnMetadata, SqlFilterOperator, SqlTableRow, SqlTableRowsResult, SqlTableSummary } from '@shared/types/sql'
 import { useEditorStore } from '../../store/editorStore'
 import { confirmAction, showErrorToast, showInfoToast, showSuccessToast } from '../../store/feedbackStore'
 import { useSqlStore } from '../../store/sqlStore'
@@ -306,11 +306,15 @@ function sanitizeDatabaseTableLayout(layout: Partial<DatabaseTableLayoutPreferen
 }
 
 function sanitizeStoredLayoutSnapshot(layout: Partial<DatabaseTableLayoutPreference> | undefined): DatabaseTableLayoutPreference {
+  const rawPinnedColumns = Array.isArray(layout?.pinnedColumns) ? layout.pinnedColumns : []
+  const rawHiddenColumns = Array.isArray(layout?.hiddenColumns) ? layout.hiddenColumns : []
+  const rawColumnOrder = Array.isArray(layout?.columnOrder) ? layout.columnOrder : []
+
   return {
     compactMode: Boolean(layout?.compactMode),
-    pinnedColumns: [...new Set((Array.isArray(layout?.pinnedColumns) ? layout?.pinnedColumns : []).filter((name): name is string => typeof name === 'string' && name.trim().length > 0))],
-    hiddenColumns: [...new Set((Array.isArray(layout?.hiddenColumns) ? layout?.hiddenColumns : []).filter((name): name is string => typeof name === 'string' && name.trim().length > 0))],
-    columnOrder: [...new Set((Array.isArray(layout?.columnOrder) ? layout?.columnOrder : []).filter((name): name is string => typeof name === 'string' && name.trim().length > 0))],
+    pinnedColumns: [...new Set(rawPinnedColumns.filter((name): name is string => typeof name === 'string' && name.trim().length > 0))],
+    hiddenColumns: [...new Set(rawHiddenColumns.filter((name): name is string => typeof name === 'string' && name.trim().length > 0))],
+    columnOrder: [...new Set(rawColumnOrder.filter((name): name is string => typeof name === 'string' && name.trim().length > 0))],
     columnWidths: Object.fromEntries(
       Object.entries(layout?.columnWidths ?? {})
         .filter(([name, width]) => typeof name === 'string' && name.trim().length > 0 && Number.isFinite(width))
@@ -1568,16 +1572,6 @@ function BrowserGrid({ tableRows }: { tableRows: SqlTableRowsResult }) {
     }
   }, [])
 
-  if (tableRows.error) {
-    return (
-      <div className="database-results-empty database-results-error">
-        <i className="fa-solid fa-triangle-exclamation"></i>
-        <strong>Table browser failed</strong>
-        <span>{tableRows.error}</span>
-      </div>
-    )
-  }
-
   const safeTotalRows = Number.isFinite(tableRows.totalRows) ? tableRows.totalRows : 0
   const safeLimit = Math.max(1, tableRows.limit ?? browse.pageSize)
   const safeOffset = Math.max(0, tableRows.offset ?? 0)
@@ -2265,6 +2259,16 @@ function BrowserGrid({ tableRows }: { tableRows: SqlTableRowsResult }) {
     if (result?.success) {
       setDrawerState(null)
     }
+  }
+
+  if (tableRows.error) {
+    return (
+      <div className="database-results-empty database-results-error">
+        <i className="fa-solid fa-triangle-exclamation"></i>
+        <strong>Table browser failed</strong>
+        <span>{tableRows.error}</span>
+      </div>
+    )
   }
 
   return (
@@ -3125,7 +3129,6 @@ export function DatabasePanel() {
     databaseFiles,
     activeConnectionId,
     activeTableId,
-    activeTableColumns,
     schema,
     isLoadingFiles,
     isLoadingSchema,
@@ -3250,7 +3253,6 @@ export function DatabaseWorkspace() {
     activeConnectionId,
     activeConnection,
     activeTable,
-    activeTableColumns,
     databaseFiles,
     queryResult,
     tableRows,
