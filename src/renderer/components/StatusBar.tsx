@@ -3,6 +3,7 @@ import { useEditorStore } from '../store/editorStore'
 import { useProblemsStore } from '../store/problemsStore'
 import { useTasksStore } from '../store/tasksStore'
 import { useUiStore } from '../store/uiStore'
+import { countProblemSeverity, mergeProblemEntries } from '../utils/problems'
 
 export function StatusBar() {
   const getActiveTab = useEditorStore((state) => state.getActiveTab)
@@ -11,13 +12,15 @@ export function StatusBar() {
   const updateStatus = useUiStore((state) => state.updateStatus)
   const toggleDiagnosticsModal = useUiStore((state) => state.toggleDiagnosticsModal)
   const showSidebarView = useUiStore((state) => state.showSidebarView)
-  const problemEntries = useProblemsStore((state) => state.result?.entries ?? [])
+  const problemEntries = useProblemsStore((state) =>
+    mergeProblemEntries(state.result?.entries ?? [], state.liveEntries)
+  )
   const runningTaskCount = useTasksStore((state) => state.runs.filter((run) => run.status === 'running').length)
   const activeTab = getActiveTab()
   const isDirty = activeTab && activeTab.content !== activeTab.savedContent
   const shouldShowUpdateStatus = updateStatus && ['checking', 'available', 'downloading', 'downloaded', 'error'].includes(updateStatus.state)
-  const errorCount = problemEntries.filter((entry) => entry.severity === 'error').length
-  const warningCount = problemEntries.filter((entry) => entry.severity === 'warning').length
+  const errorCount = countProblemSeverity(problemEntries, 'error')
+  const warningCount = countProblemSeverity(problemEntries, 'warning')
 
   return (
     <div className="status-bar">

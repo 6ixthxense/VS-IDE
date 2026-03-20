@@ -191,9 +191,10 @@ export function CodeEditorSurface({ filePath, language, initialContent }: CodeEd
 
     const lineNumber = Math.max(1, Math.min(pendingEditorTarget.line, view.state.doc.lines))
     const line = view.state.doc.line(lineNumber)
+    const column = Math.max(1, Math.min(pendingEditorTarget.column ?? 1, line.length + 1))
 
     view.dispatch({
-      selection: EditorSelection.cursor(line.from),
+      selection: EditorSelection.cursor(line.from + column - 1),
       scrollIntoView: true,
     })
     view.focus()

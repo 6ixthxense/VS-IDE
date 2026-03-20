@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react'
-import type { ProblemEntry, ProblemSource } from '@shared/types/ipc'
+import type { ProblemSource } from '@shared/types/ipc'
 import { useEditorStore } from '../../store/editorStore'
 import { useProblemsStore } from '../../store/problemsStore'
 import { useUiStore } from '../../store/uiStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { countProblemSeverity, getProblemsTimestampLabel, mergeProblemEntries } from '../../utils/problems'
 
 function toRelativePath(rootPath: string | null, filePath: string) {
   if (!rootPath) return filePath
@@ -16,10 +17,6 @@ function toRelativePath(rootPath: string | null, filePath: string) {
     : normalizedPath
 }
 
-function countSeverity(entries: ProblemEntry[], severity: 'error' | 'warning') {
-  return entries.filter((entry) => entry.severity === severity).length
-}
-
 function formatSourceLabel(source: ProblemSource) {
   return source === 'typescript' ? 'TypeScript' : 'ESLint'
 }
@@ -28,6 +25,7 @@ export function ProblemsPanel() {
   const rootPath = useWorkspaceStore((state) => state.rootPath)
   const openFile = useEditorStore((state) => state.openFile)
   const result = useProblemsStore((state) => state.result)
+  const liveEntries = useProblemsStore((state) => state.liveEntries)
   const loading = useProblemsStore((state) => state.loading)
   const severityFilter = useProblemsStore((state) => state.severityFilter)
   const sourceFilter = useProblemsStore((state) => state.sourceFilter)
@@ -35,10 +33,13 @@ export function ProblemsPanel() {
   const setSourceFilter = useProblemsStore((state) => state.setSourceFilter)
   const scan = useProblemsStore((state) => state.scan)
   const setPendingEditorTarget = useUiStore((state) => state.setPendingEditorTarget)
+  const allEntries = useMemo(
+    () => mergeProblemEntries(result?.entries ?? [], liveEntries),
+    [liveEntries, result?.entries]
+  )
 
   const filteredEntries = useMemo(() => {
-    const entries = result?.entries ?? []
-    return entries.filter((entry) => {
+    return allEntries.filter((entry) => {
       if (severityFilter !== 'all' && entry.severity !== severityFilter) {
         return false
       }
@@ -49,10 +50,11 @@ export function ProblemsPanel() {
 
       return true
     })
-  }, [result?.entries, severityFilter, sourceFilter])
+  }, [allEntries, severityFilter, sourceFilter])
 
-  const errorCount = result ? countSeverity(result.entries, 'error') : 0
-  const warningCount = result ? countSeverity(result.entries, 'warning') : 0
+  const errorCount = countProblemSeverity(allEntries, 'error')
+  const warningCount = countProblemSeverity(allEntries, 'warning')
+  const hasLiveTypeScript = liveEntries.length > 0
 
   const openProblem = async (filePath: string, line: number) => {
     setPendingEditorTarget({ filePath, line })
@@ -92,7 +94,7 @@ export function ProblemsPanel() {
               </div>
               <div className="problems-summary-card neutral">
                 <span className="problems-summary-label">Last Scan</span>
-                <strong>{result ? new Date(result.scannedAt).toLocaleTimeString() : 'Never'}</strong>
+                <strong>{getProblemsTimestampLabel(result, liveEntries)}</strong>
               </div>
             </div>
 
@@ -141,8 +143,14 @@ export function ProblemsPanel() {
               </button>
             </div>
 
-            {(result?.notes?.length || result?.error) ? (
+            {(result?.notes?.length || result?.error || hasLiveTypeScript) ? (
               <div className="problems-notes">
+                {hasLiveTypeScript && (
+                  <div className="problems-note">
+                    <i className="fa-solid fa-wave-square"></i>
+                    <span>TypeScript issues are updating live from the editor. ESLint entries still come from scans.</span>
+                  </div>
+                )}
                 {result?.error && (
                   <div className="problems-note error">
                     <i className="fa-solid fa-triangle-exclamation"></i>
@@ -167,7 +175,9 @@ export function ProblemsPanel() {
                 <span>
                   {result
                     ? 'Try another filter, or run a fresh scan after editing files.'
-                    : 'Run your first scan to collect TypeScript and ESLint issues.'}
+                    : hasLiveTypeScript
+                      ? 'Live TypeScript diagnostics are ready. Run a scan to add ESLint results too.'
+                      : 'Run your first scan to collect TypeScript and ESLint issues.'}
                 </span>
               </div>
             ) : (

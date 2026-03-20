@@ -8,6 +8,9 @@ import { ErrorBoundary } from './ErrorBoundary'
 const CodeEditorSurface = lazy(() =>
   import('./CodeEditorSurface').then((module) => ({ default: module.CodeEditorSurface }))
 )
+const MonacoEditorSurface = lazy(() =>
+  import('./MonacoEditorSurface').then((module) => ({ default: module.MonacoEditorSurface }))
+)
 
 const Breadcrumbs = React.memo(({ parts }: { parts: string[] }) => (
   <div className="breadcrumbs">
@@ -203,12 +206,21 @@ function EditorContent({ groupId }: { groupId: string }) {
       <EditorAttentionBanner groupId={groupId} />
       <div className="editor-surface">
         <Suspense fallback={<div className="loading">Loading editor surface...</div>}>
-          <CodeEditorSurface
-            key={activeTab.path}
-            filePath={activeTab.path}
-            language={activeTab.language}
-            initialContent={activeTab.content ?? ''}
-          />
+          {activeTab.language === 'javascript' || activeTab.language === 'typescript' ? (
+            <MonacoEditorSurface
+              key={activeTab.path}
+              filePath={activeTab.path}
+              language={activeTab.language}
+              initialContent={activeTab.content ?? ''}
+            />
+          ) : (
+            <CodeEditorSurface
+              key={activeTab.path}
+              filePath={activeTab.path}
+              language={activeTab.language}
+              initialContent={activeTab.content ?? ''}
+            />
+          )}
         </Suspense>
       </div>
     </div>

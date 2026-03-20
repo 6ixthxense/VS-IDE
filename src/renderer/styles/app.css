@@ -2327,6 +2327,123 @@ kbd {
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
+.symbol-modal {
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(82vh, 780px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.symbol-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.symbol-modal-head p {
+  color: var(--txt-dim);
+  margin-top: 6px;
+}
+
+.symbol-modal-count {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  color: var(--txt-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.symbol-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(54vh, 520px);
+  overflow-y: auto;
+}
+
+.symbol-result-item {
+  width: 100%;
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-1) 72%, transparent);
+  color: var(--txt);
+  padding: 12px 14px;
+  text-align: left;
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.symbol-result-item:hover {
+  border-color: color-mix(in srgb, var(--acc) 44%, var(--bdr));
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--acc) 8%);
+  transform: translateY(-1px);
+}
+
+.symbol-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.symbol-result-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.symbol-result-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+  background: color-mix(in srgb, var(--acc) 18%, transparent);
+  color: var(--txt-bright);
+}
+
+.symbol-result-badge.write {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.symbol-result-path {
+  color: var(--txt-dim);
+  font-size: 11px;
+  margin-top: 6px;
+  word-break: break-all;
+}
+
+.symbol-result-preview {
+  color: var(--txt-bright);
+  font-family: var(--editor-font-family, 'Consolas', monospace);
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.symbol-result-meta {
+  color: var(--txt-dim);
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+.symbol-rename-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--txt-dim);
+  font-size: 12px;
+}
+
+.symbol-rename-copy strong {
+  color: var(--txt-bright);
+  font-size: 14px;
+}
+
+.symbol-rename-hint {
+  color: var(--txt-dim);
+  font-size: 11px;
+}
+
 .btn-cancel {
   background: var(--surface-1);
   border: none;

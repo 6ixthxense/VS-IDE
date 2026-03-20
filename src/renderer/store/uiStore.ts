@@ -13,6 +13,7 @@ interface CursorPos {
 interface PendingEditorTarget {
   filePath: string
   line: number
+  column?: number
 }
 
 interface UiState {

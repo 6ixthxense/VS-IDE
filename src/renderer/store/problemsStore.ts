@@ -14,11 +14,13 @@ interface PersistedProblemsState {
 interface ProblemsState {
   workspaceRoot: string | null
   result: ProblemScanResult | null
+  liveEntries: ProblemScanResult['entries']
   loading: boolean
   severityFilter: ProblemSeverityFilter
   sourceFilter: ProblemSourceFilter
   restoreForWorkspace: (rootPath: string | null) => Promise<void>
   scan: () => Promise<ProblemScanResult | null>
+  setLiveEntries: (rootPath: string, entries: ProblemScanResult['entries']) => void
   setSeverityFilter: (filter: ProblemSeverityFilter) => void
   setSourceFilter: (filter: ProblemSourceFilter) => void
 }
@@ -70,6 +72,7 @@ function shouldUseLatestResult(latest: ProblemScanResult, existing: ProblemScanR
 export const useProblemsStore = create<ProblemsState>((set, get) => ({
   workspaceRoot: null,
   result: null,
+  liveEntries: [],
   loading: false,
   severityFilter: 'all',
   sourceFilter: 'all',
@@ -79,6 +82,7 @@ export const useProblemsStore = create<ProblemsState>((set, get) => ({
       set({
         workspaceRoot: null,
         result: null,
+        liveEntries: [],
         loading: false,
         severityFilter: 'all',
         sourceFilter: 'all',
@@ -90,6 +94,7 @@ export const useProblemsStore = create<ProblemsState>((set, get) => ({
     set({
       workspaceRoot: rootPath,
       result: snapshot?.result ?? null,
+      liveEntries: [],
       loading: false,
       severityFilter: snapshot?.severityFilter ?? 'all',
       sourceFilter: snapshot?.sourceFilter ?? 'all',
@@ -130,6 +135,16 @@ export const useProblemsStore = create<ProblemsState>((set, get) => ({
       showErrorToast((error as Error).message || 'Unable to scan workspace problems.', 'Problem scan failed')
       return null
     }
+  },
+
+  setLiveEntries: (rootPath, liveEntries) => {
+    set((state) => {
+      if (state.workspaceRoot && state.workspaceRoot !== rootPath) {
+        return state
+      }
+
+      return { liveEntries }
+    })
   },
 
   setSeverityFilter: (severityFilter) => {
