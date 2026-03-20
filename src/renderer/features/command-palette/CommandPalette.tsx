@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState } from 'react'
 import type { ThemeName } from '../../config/appearance'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useEditorStore } from '../../store/editorStore'
-import { useUiStore } from '../../store/uiStore'
+import { useUiStore, type SidebarView } from '../../store/uiStore'
 import { useConfigStore } from '../../store/configStore'
 import { showErrorToast, showSuccessToast } from '../../store/feedbackStore'
+import { useProblemsStore } from '../../store/problemsStore'
+import { useTasksStore } from '../../store/tasksStore'
 
 interface Command {
   id: string
@@ -82,7 +84,7 @@ export function CommandPalette() {
 
   const closePalette = () => useUiStore.setState({ showCommandPalette: false })
 
-  const revealSidebarView = (view: 'explorer' | 'search' | 'git') => {
+  const revealSidebarView = (view: SidebarView) => {
     showSidebarView(view)
   }
 
@@ -147,6 +149,38 @@ export function CommandPalette() {
     }
 
     showSuccessToast('The app will restart to finish installing the update.', 'Installing update')
+  }
+
+  const scanProblems = async () => {
+    if (!rootPath) return
+
+    const problemsStore = useProblemsStore.getState()
+    if (problemsStore.workspaceRoot !== rootPath) {
+      await problemsStore.restoreForWorkspace(rootPath)
+    }
+
+    revealSidebarView('problems')
+    await useProblemsStore.getState().scan()
+  }
+
+  const runScriptTask = async (scriptName: 'build' | 'test') => {
+    if (!rootPath) return
+
+    const taskStore = useTasksStore.getState()
+    if (taskStore.workspaceRoot !== rootPath) {
+      await taskStore.restoreForWorkspace(rootPath)
+    } else if (taskStore.definitions.length === 0) {
+      await taskStore.loadDefinitions()
+    }
+
+    const nextTask = useTasksStore.getState().definitions.find((task) => task.label === scriptName)
+    if (!nextTask) {
+      showErrorToast(`No "${scriptName}" script was found in package.json.`, 'Task not found')
+      return
+    }
+
+    revealSidebarView('tasks')
+    await useTasksStore.getState().runTask(nextTask)
   }
 
   const commands: Command[] = [
@@ -247,6 +281,24 @@ export function CommandPalette() {
       description: 'Jump straight to staged changes and diff preview.',
       keywords: ['git', 'scm', 'diff'],
       action: () => { revealSidebarView('git') },
+    },
+    {
+      id: 'show-problems',
+      label: 'Show Problems',
+      icon: 'fa-solid fa-circle-exclamation',
+      category: 'Navigation',
+      description: 'Open the problems sidebar with TypeScript and ESLint diagnostics.',
+      keywords: ['errors', 'warnings', 'diagnostics'],
+      action: () => { revealSidebarView('problems') },
+    },
+    {
+      id: 'show-task-runner',
+      label: 'Show Task Runner',
+      icon: 'fa-solid fa-list-check',
+      category: 'Navigation',
+      description: 'Open the task runner for package scripts and custom commands.',
+      keywords: ['npm', 'scripts', 'build', 'test'],
+      action: () => { revealSidebarView('tasks') },
     },
     {
       id: 'toggle-sidebar',
@@ -365,6 +417,36 @@ export function CommandPalette() {
       keywords: ['remote', 'publish'],
       disabled: !rootPath,
       action: async () => { await syncGitAction('push') },
+    },
+    {
+      id: 'scan-problems',
+      label: 'Scan Problems',
+      icon: 'fa-solid fa-bolt',
+      category: 'Quality',
+      description: 'Run TypeScript and ESLint problem scans for the current workspace.',
+      keywords: ['diagnostics', 'lint', 'tsc', 'eslint'],
+      disabled: !rootPath,
+      action: async () => { await scanProblems() },
+    },
+    {
+      id: 'run-build-task',
+      label: 'Run Build Task',
+      icon: 'fa-solid fa-hammer',
+      category: 'Tasks',
+      description: 'Run the package.json build script in the integrated terminal.',
+      keywords: ['npm run build', 'compile'],
+      disabled: !rootPath,
+      action: async () => { await runScriptTask('build') },
+    },
+    {
+      id: 'run-test-task',
+      label: 'Run Test Task',
+      icon: 'fa-solid fa-flask',
+      category: 'Tasks',
+      description: 'Run the package.json test script in the integrated terminal.',
+      keywords: ['npm test', 'vitest', 'jest'],
+      disabled: !rootPath,
+      action: async () => { await runScriptTask('test') },
     },
   ]
 

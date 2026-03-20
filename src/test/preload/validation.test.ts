@@ -8,6 +8,7 @@ import {
   normalizeSqlInsertRowRequest,
   normalizeSqlQueryRequest,
   normalizeSqlUpdateRowRequest,
+  normalizeTaskRunRequest,
   requireCallback,
   requireIdentifier,
   requirePath,
@@ -80,6 +81,45 @@ describe('preload validation helpers', () => {
       path: 'C:\\workspace\\src\\main.ts',
       staged: 'yes' as never,
     })).toThrow('Git diff staged flag must be a boolean')
+  })
+
+  it('normalizes task run requests and rejects invalid task sources', () => {
+    expect(normalizeTaskRunRequest({
+      terminalId: ' default ',
+      task: {
+        id: ' npm:build ',
+        label: ' Build ',
+        command: ' npm.cmd ',
+        args: [' run ', ' build '],
+        source: 'package-script',
+        cwd: 'C:\\workspace',
+        detail: 'vite build',
+        shell: true,
+      },
+    })).toEqual({
+      terminalId: 'default',
+      task: {
+        id: 'npm:build',
+        label: 'Build',
+        command: 'npm.cmd',
+        args: [' run ', ' build '],
+        source: 'package-script',
+        cwd: 'C:\\workspace',
+        detail: 'vite build',
+        shell: true,
+      },
+    })
+
+    expect(() => normalizeTaskRunRequest({
+      terminalId: 'default',
+      task: {
+        id: 'custom:test',
+        label: 'Test',
+        command: 'npm',
+        args: [],
+        source: 'script' as never,
+      },
+    })).toThrow('Task source must be either "package-script" or "custom"')
   })
 
   it('normalizes SQL query requests', () => {

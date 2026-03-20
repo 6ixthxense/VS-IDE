@@ -7,6 +7,8 @@ import { registerFileHandlers } from './ipc/file'
 import { registerWorkspaceHandlers } from './ipc/workspace'
 import { registerTerminalHandlers } from './ipc/terminal'
 import { registerSqlHandlers } from './ipc/sql'
+import { registerProblemHandlers } from './ipc/problems'
+import { registerTaskHandlers } from './ipc/tasks'
 import { buildSysStats } from './services/systemMonitor'
 import { workspaceFileIndex } from './services/fileIndex'
 import { IPC } from '../shared/constants/index'
@@ -140,6 +142,8 @@ app.whenReady().then(() => {
   registerFileHandlers()
   registerWorkspaceHandlers()
   registerTerminalHandlers()
+  registerProblemHandlers()
+  registerTaskHandlers()
   sqlService.registerAdapter(new SqliteAdapter())
   registerSqlHandlers()
   registerAppHandlers()

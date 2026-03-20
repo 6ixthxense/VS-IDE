@@ -12,6 +12,12 @@ const SearchPanel = lazy(() =>
 const GitPanel = lazy(() =>
   import('../features/git/GitPanel').then((module) => ({ default: module.GitPanel }))
 )
+const ProblemsPanel = lazy(() =>
+  import('../features/problems/ProblemsPanel').then((module) => ({ default: module.ProblemsPanel }))
+)
+const TaskRunnerPanel = lazy(() =>
+  import('../features/tasks/TaskRunnerPanel').then((module) => ({ default: module.TaskRunnerPanel }))
+)
 const DatabasePanel = lazy(() =>
   import('../features/database/DatabasePanel').then((module) => ({ default: module.DatabasePanel }))
 )
@@ -520,6 +526,16 @@ export function Sidebar() {
       {activeSidebarView === 'git' && (
         <Suspense fallback={<div className="loading">Loading source control...</div>}>
           <GitPanel />
+        </Suspense>
+      )}
+      {activeSidebarView === 'problems' && (
+        <Suspense fallback={<div className="loading">Loading problems...</div>}>
+          <ProblemsPanel />
+        </Suspense>
+      )}
+      {activeSidebarView === 'tasks' && (
+        <Suspense fallback={<div className="loading">Loading tasks...</div>}>
+          <TaskRunnerPanel />
         </Suspense>
       )}
       {activeSidebarView === 'database' && (

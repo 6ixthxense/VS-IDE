@@ -5,10 +5,15 @@ import type {
   GitDiffRequest,
   OperationResult,
   PathOperationResult,
+  ProblemScanResult,
   RunCodePayload,
   SearchOptions,
   SearchResult,
   SysStats,
+  TaskDefinition,
+  TaskEvent,
+  TaskRun,
+  TaskRunRequest,
   TerminalOutputEvent,
   TerminalStatusEvent,
   UpdateStatusEvent,
@@ -50,6 +55,15 @@ function emptyDiagnostics(): DiagnosticsSnapshot {
     userDataPath: '',
     logFilePath: '',
     entries: [],
+  }
+}
+
+function emptyProblems(rootPath = ''): ProblemScanResult {
+  return {
+    rootPath,
+    scannedAt: new Date().toISOString(),
+    entries: [],
+    notes: [unavailableDetails()],
   }
 }
 
@@ -150,6 +164,13 @@ export function createElectronApiFallback(): ElectronAPI {
     gitPush: async (_rootPath: string) => failedOperation('Push failed', details),
     gitPull: async (_rootPath: string) => failedOperation('Pull failed', details),
     getGitDiff: async (_rootPath: string, _request: GitDiffRequest) => 'Electron preload bridge unavailable.',
+    scanProblems: async (rootPath: string) => emptyProblems(rootPath),
+    getLastProblems: async (rootPath: string) => emptyProblems(rootPath),
+    getTaskDefinitions: async (_rootPath: string): Promise<TaskDefinition[]> => [],
+    runTask: async (_rootPath: string, _request: TaskRunRequest): Promise<OperationResult & { run?: TaskRun }> =>
+      failedOperation('Unable to run task', details),
+    stopTask: async (_runId: string) => failedOperation('Unable to stop task', details),
+    onTaskEvent: (_cb: (event: TaskEvent) => void) => noopUnsubscribe(),
     searchFiles: async (_query: string, _rootPath: string, _options?: Partial<SearchOptions>): Promise<SearchResult[]> => [],
     replaceInFiles: async (_query: string, _replacement: string, _rootPath: string, _options?: Partial<SearchOptions>) => ({
       success: false,

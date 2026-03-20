@@ -1,10 +1,10 @@
 import React from 'react'
-import { useUiStore } from '../store/uiStore'
+import { useUiStore, type SidebarView } from '../store/uiStore'
 
 export function ActivityBar() {
   const { activeSidebarView, setActiveSidebarView, showSidebar, toggleSidebar, toggleSysMonitor, toggleSettingsModal } = useUiStore()
 
-  const handleTabClick = (view: 'explorer' | 'search' | 'git' | 'database') => {
+  const handleTabClick = (view: SidebarView) => {
     if (activeSidebarView === view) {
       toggleSidebar()
     } else {
@@ -36,6 +36,20 @@ export function ActivityBar() {
           title="Source Control"
         >
           <i className="fa-solid fa-code-branch"></i>
+        </button>
+        <button
+          className={`activity-btn ${activeSidebarView === 'problems' && showSidebar ? 'active' : ''}`}
+          onClick={() => handleTabClick('problems')}
+          title="Problems"
+        >
+          <i className="fa-solid fa-circle-exclamation"></i>
+        </button>
+        <button
+          className={`activity-btn ${activeSidebarView === 'tasks' && showSidebar ? 'active' : ''}`}
+          onClick={() => handleTabClick('tasks')}
+          title="Task Runner"
+        >
+          <i className="fa-solid fa-list-check"></i>
         </button>
         <button
           className={`activity-btn ${activeSidebarView === 'database' && showSidebar ? 'active' : ''}`}

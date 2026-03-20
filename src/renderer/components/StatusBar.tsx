@@ -1,24 +1,41 @@
 import React from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { useProblemsStore } from '../store/problemsStore'
+import { useTasksStore } from '../store/tasksStore'
 import { useUiStore } from '../store/uiStore'
 
 export function StatusBar() {
-  const getActiveTab = useEditorStore(s => s.getActiveTab)
-  const cursorPos = useUiStore(s => s.cursorPos)
-  const appInfo = useUiStore((s) => s.appInfo)
-  const updateStatus = useUiStore((s) => s.updateStatus)
-  const toggleDiagnosticsModal = useUiStore((s) => s.toggleDiagnosticsModal)
+  const getActiveTab = useEditorStore((state) => state.getActiveTab)
+  const cursorPos = useUiStore((state) => state.cursorPos)
+  const appInfo = useUiStore((state) => state.appInfo)
+  const updateStatus = useUiStore((state) => state.updateStatus)
+  const toggleDiagnosticsModal = useUiStore((state) => state.toggleDiagnosticsModal)
+  const showSidebarView = useUiStore((state) => state.showSidebarView)
+  const problemEntries = useProblemsStore((state) => state.result?.entries ?? [])
+  const runningTaskCount = useTasksStore((state) => state.runs.filter((run) => run.status === 'running').length)
   const activeTab = getActiveTab()
   const isDirty = activeTab && activeTab.content !== activeTab.savedContent
   const shouldShowUpdateStatus = updateStatus && ['checking', 'available', 'downloading', 'downloaded', 'error'].includes(updateStatus.state)
+  const errorCount = problemEntries.filter((entry) => entry.severity === 'error').length
+  const warningCount = problemEntries.filter((entry) => entry.severity === 'warning').length
 
   return (
     <div className="status-bar">
       <div className="status-left">
         <span className="status-indicator" />
-        <span>{activeTab ? (isDirty ? `● ${activeTab.name}` : activeTab.name) : 'No file open'}</span>
+        <span>{activeTab ? (isDirty ? `* ${activeTab.name}` : activeTab.name) : 'No file open'}</span>
       </div>
       <div className="status-right">
+        {(errorCount > 0 || warningCount > 0) && (
+          <button type="button" className="status-link" onClick={() => showSidebarView('problems')}>
+            {errorCount}E {warningCount}W
+          </button>
+        )}
+        {runningTaskCount > 0 && (
+          <button type="button" className="status-link" onClick={() => showSidebarView('tasks')}>
+            {runningTaskCount} task{runningTaskCount === 1 ? '' : 's'} running
+          </button>
+        )}
         {activeTab && (
           <>
             <span>{activeTab.language}</span>

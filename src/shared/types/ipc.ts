@@ -69,6 +69,66 @@ export interface SearchResult {
   match: string
 }
 
+export type ProblemSeverity = 'error' | 'warning'
+export type ProblemSource = 'typescript' | 'eslint'
+
+export interface ProblemEntry {
+  id: string
+  filePath: string
+  line: number
+  column: number
+  message: string
+  source: ProblemSource
+  severity: ProblemSeverity
+  code?: string
+}
+
+export interface ProblemScanResult {
+  rootPath: string
+  scannedAt: string
+  entries: ProblemEntry[]
+  notes?: string[]
+  error?: string
+}
+
+export type TaskSource = 'package-script' | 'custom'
+export type TaskRunStatus = 'idle' | 'running' | 'success' | 'error' | 'cancelled'
+
+export interface TaskDefinition {
+  id: string
+  label: string
+  command: string
+  args: string[]
+  source: TaskSource
+  cwd?: string
+  detail?: string
+  shell?: boolean
+}
+
+export interface TaskRunRequest {
+  terminalId: string
+  task: TaskDefinition
+}
+
+export interface TaskRun {
+  runId: string
+  taskId: string
+  label: string
+  command: string
+  source: TaskSource
+  terminalId: string
+  cwd: string
+  status: TaskRunStatus
+  startedAt: string
+  finishedAt?: string
+  exitCode?: number | null
+  detail?: string
+}
+
+export interface TaskEvent extends TaskRun {
+  message: string
+}
+
 export interface RunCodePayload {
   terminalId: string
   code: string
@@ -163,6 +223,12 @@ export interface ElectronAPI {
   gitPush: (rootPath: string) => Promise<OperationResult>
   gitPull: (rootPath: string) => Promise<OperationResult>
   getGitDiff: (rootPath: string, request: GitDiffRequest) => Promise<string>
+  scanProblems: (rootPath: string) => Promise<ProblemScanResult>
+  getLastProblems: (rootPath: string) => Promise<ProblemScanResult>
+  getTaskDefinitions: (rootPath: string) => Promise<TaskDefinition[]>
+  runTask: (rootPath: string, request: TaskRunRequest) => Promise<OperationResult & { run?: TaskRun }>
+  stopTask: (runId: string) => Promise<OperationResult>
+  onTaskEvent: (cb: (event: TaskEvent) => void) => () => void
   searchFiles: (query: string, rootPath: string, options?: Partial<SearchOptions>) => Promise<SearchResult[]>
   replaceInFiles: (
     query: string,

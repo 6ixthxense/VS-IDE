@@ -10,6 +10,8 @@ import { useWorkspaceStore } from './store/workspaceStore'
 import { useSysStore } from './store/sysStore'
 import { useConfigStore } from './store/configStore'
 import { useEditorStore } from './store/editorStore'
+import { useProblemsStore } from './store/problemsStore'
+import { useTasksStore } from './store/tasksStore'
 import { showErrorToast, showSuccessToast, showWarningToast } from './store/feedbackStore'
 import { applyAppearanceConfig } from './config/appearance'
 import { normalizeSysStats } from './utils/sysStats'
@@ -55,6 +57,7 @@ export default function App() {
   const activeSidebarView = useUiStore((s) => s.activeSidebarView)
   const setAppInfo = useUiStore((s) => s.setAppInfo)
   const setUpdateStatus = useUiStore((s) => s.setUpdateStatus)
+  const rootPath = useWorkspaceStore((s) => s.rootPath)
   const theme = useConfigStore((s) => s.theme)
   const accent = useConfigStore((s) => s.accent)
   const accentGradient = useConfigStore((s) => s.accentGradient)
@@ -133,6 +136,11 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    void useProblemsStore.getState().restoreForWorkspace(rootPath)
+    void useTasksStore.getState().restoreForWorkspace(rootPath)
+  }, [rootPath])
+
+  useEffect(() => {
     void window.electronAPI.getAppInfo().then((info) => {
       setAppInfo(info)
       if (!info.bridgeAvailable && !hasShownBridgeToastRef.current) {
@@ -169,9 +177,14 @@ export default function App() {
       }
     })
 
+    const cleanupTaskEvents = window.electronAPI.onTaskEvent((event) => {
+      useTasksStore.getState().handleTaskEvent(event)
+    })
+
     return () => {
       cleanupTerminalStatus()
       cleanupUpdateStatus()
+      cleanupTaskEvents()
     }
   }, [setAppInfo, setUpdateStatus])
 

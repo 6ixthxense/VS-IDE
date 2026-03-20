@@ -3,6 +3,8 @@ import type { AppInfo, SysStats, UpdateStatusEvent } from '@shared/types/ipc'
 import { normalizeSysStats } from '../utils/sysStats'
 import { readWorkbenchUi, writeWorkbenchUi } from '../utils/workbenchPersistence'
 
+export type SidebarView = 'explorer' | 'search' | 'git' | 'database' | 'problems' | 'tasks'
+
 interface CursorPos {
   line: number
   col: number
@@ -20,7 +22,7 @@ interface UiState {
   sysStats: SysStats | null
   cursorPos: CursorPos
   pendingEditorTarget: PendingEditorTarget | null
-  activeSidebarView: 'explorer' | 'search' | 'git' | 'database'
+  activeSidebarView: SidebarView
   showSettingsModal: boolean
   showDiagnosticsModal: boolean
   showSidebar: boolean
@@ -35,8 +37,8 @@ interface UiState {
   setCursorPos: (pos: CursorPos) => void
   setPendingEditorTarget: (target: PendingEditorTarget | null) => void
   clearPendingEditorTarget: () => void
-  setActiveSidebarView: (view: 'explorer' | 'search' | 'git' | 'database') => void
-  showSidebarView: (view: 'explorer' | 'search' | 'git' | 'database') => void
+  setActiveSidebarView: (view: SidebarView) => void
+  showSidebarView: (view: SidebarView) => void
   toggleSettingsModal: () => void
   toggleDiagnosticsModal: () => void
   toggleSidebar: () => void

@@ -1,4 +1,4 @@
-import type { GitDiffRequest, RunCodePayload, SearchOptions } from '../shared/types/ipc'
+import type { GitDiffRequest, RunCodePayload, SearchOptions, TaskDefinition, TaskRunRequest } from '../shared/types/ipc'
 import type {
   SqlBrowseFilter,
   SqlBrowseTableRequest,
@@ -70,6 +70,47 @@ export function normalizeGitDiffRequest(
     filePath: requirePath(record.filePath ?? record.path, 'Git diff path'),
     staged: record.staged as boolean | undefined,
     status: record.status as GitDiffRequest['status'],
+  }
+}
+
+function requireStringArray(value: unknown, label: string) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`)
+  }
+
+  return value.map((entry, index) => requireString(entry, `${label} item ${index + 1}`, { allowEmpty: true }))
+}
+
+export function normalizeTaskDefinition(request: Partial<TaskDefinition>): TaskDefinition {
+  const record = requireRecord(request, 'Task definition')
+  const source = record.source
+
+  if (source !== 'package-script' && source !== 'custom') {
+    throw new TypeError('Task source must be either "package-script" or "custom"')
+  }
+
+  if (record.shell != null && typeof record.shell !== 'boolean') {
+    throw new TypeError('Task shell flag must be a boolean')
+  }
+
+  return {
+    id: requireIdentifier(record.id, 'Task id'),
+    label: requireString(record.label, 'Task label', { trim: true }),
+    command: requireString(record.command, 'Task command', { trim: true }),
+    args: record.args == null ? [] : requireStringArray(record.args, 'Task args'),
+    source,
+    cwd: record.cwd == null ? undefined : requirePath(record.cwd, 'Task cwd'),
+    detail: record.detail == null ? undefined : requireString(record.detail, 'Task detail', { allowEmpty: true }),
+    shell: record.shell as boolean | undefined,
+  }
+}
+
+export function normalizeTaskRunRequest(request: Partial<TaskRunRequest>): TaskRunRequest {
+  const record = requireRecord(request, 'Task run request')
+
+  return {
+    terminalId: requireIdentifier(record.terminalId, 'Terminal id'),
+    task: normalizeTaskDefinition(record.task as Partial<TaskDefinition>),
   }
 }
 

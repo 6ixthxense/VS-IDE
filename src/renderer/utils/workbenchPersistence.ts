@@ -4,7 +4,7 @@ const STORAGE_PREFIX = 'vs-monitor-ide'
 const MAX_PERSISTED_TAB_SIZE = 200_000
 const MAX_PERSISTED_TAB_BUDGET = 1_500_000
 
-export type PersistedSidebarView = 'explorer' | 'search' | 'git' | 'database'
+export type PersistedSidebarView = 'explorer' | 'search' | 'git' | 'database' | 'problems' | 'tasks'
 export type PersistedEditorLayoutDirection = 'horizontal' | 'vertical'
 
 export interface PersistedEditorGroup {

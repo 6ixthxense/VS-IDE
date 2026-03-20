@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/constants'
-import type { AppInfo, DiagnosticsSnapshot, ElectronAPI, GitDiffRequest, GitStatus, OperationResult, PathOperationResult, RunCodePayload, SearchOptions, SearchResult, SysStats, TerminalOutputEvent, TerminalStatusEvent, UpdateStatusEvent, WorkspaceChangedEvent } from '../shared/types/ipc'
+import type { AppInfo, DiagnosticsSnapshot, ElectronAPI, GitDiffRequest, GitStatus, OperationResult, PathOperationResult, ProblemScanResult, RunCodePayload, SearchOptions, SearchResult, SysStats, TaskDefinition, TaskEvent, TaskRun, TaskRunRequest, TerminalOutputEvent, TerminalStatusEvent, UpdateStatusEvent, WorkspaceChangedEvent } from '../shared/types/ipc'
 import type { FileEntry } from '../shared/types/file'
 import type { SqlBrowseTableRequest, SqlDeleteRowRequest, SqlInsertRowRequest, SqlMutationResult, SqlQueryRequest, SqlQueryResult, SqlSchemaSummary, SqlServiceStatus, SqlTableRowsResult, SqlUpdateRowRequest } from '../shared/types/sql'
-import { normalizeGitDiffRequest, normalizeRunCodePayload, normalizeSearchOptions, normalizeSqlBrowseTableRequest, normalizeSqlDeleteRowRequest, normalizeSqlInsertRowRequest, normalizeSqlQueryRequest, normalizeSqlUpdateRowRequest, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
+import { normalizeGitDiffRequest, normalizeRunCodePayload, normalizeSearchOptions, normalizeSqlBrowseTableRequest, normalizeSqlDeleteRowRequest, normalizeSqlInsertRowRequest, normalizeSqlQueryRequest, normalizeSqlUpdateRowRequest, normalizeTaskRunRequest, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args) as Promise<T>
@@ -155,6 +155,24 @@ const api: ElectronAPI = Object.freeze({
 
   getGitDiff: (rootPath: string, request: GitDiffRequest) =>
     invoke<string>(IPC.GIT_DIFF, requirePath(rootPath, 'Workspace root path'), normalizeGitDiffRequest(request)),
+
+  scanProblems: (rootPath: string) =>
+    invoke<ProblemScanResult>(IPC.PROBLEMS_SCAN, requirePath(rootPath, 'Workspace root path')),
+
+  getLastProblems: (rootPath: string) =>
+    invoke<ProblemScanResult>(IPC.PROBLEMS_GET_LAST, requirePath(rootPath, 'Workspace root path')),
+
+  getTaskDefinitions: (rootPath: string) =>
+    invoke<TaskDefinition[]>(IPC.TASKS_LIST, requirePath(rootPath, 'Workspace root path')),
+
+  runTask: (rootPath: string, request: TaskRunRequest) =>
+    invoke<OperationResult & { run?: TaskRun }>(IPC.TASKS_RUN, requirePath(rootPath, 'Workspace root path'), normalizeTaskRunRequest(request)),
+
+  stopTask: (runId: string) =>
+    invoke<OperationResult>(IPC.TASKS_STOP, requireIdentifier(runId, 'Task run id')),
+
+  onTaskEvent: (cb: (event: TaskEvent) => void) =>
+    subscribe<TaskEvent>(IPC.TASKS_EVENT, cb),
 
   getAllFiles: (rootPath: string) =>
     invoke<string[]>(IPC.WORKSPACE_GET_ALL_FILES, requirePath(rootPath, 'Workspace root path')),

@@ -1,6 +1,6 @@
 {
   "name": "vs-monitor-ide",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "description": "A personal IDE with system monitoring — Electron + React + TypeScript",
   "author": "Mickey",
   "main": "dist-electron/main/main.js",
