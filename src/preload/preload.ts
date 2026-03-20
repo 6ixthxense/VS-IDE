@@ -3,7 +3,7 @@ import { IPC } from '../shared/constants'
 import type { AppInfo, DiagnosticsSnapshot, ElectronAPI, GitDiffRequest, GitStatus, OperationResult, PathOperationResult, RunCodePayload, SearchOptions, SearchResult, SysStats, TerminalOutputEvent, TerminalStatusEvent, UpdateStatusEvent, WorkspaceChangedEvent } from '../shared/types/ipc'
 import type { FileEntry } from '../shared/types/file'
 import type { SqlBrowseTableRequest, SqlDeleteRowRequest, SqlInsertRowRequest, SqlMutationResult, SqlQueryRequest, SqlQueryResult, SqlSchemaSummary, SqlServiceStatus, SqlTableRowsResult, SqlUpdateRowRequest } from '../shared/types/sql'
-import { normalizeRunCodePayload, normalizeSearchOptions, normalizeSqlBrowseTableRequest, normalizeSqlDeleteRowRequest, normalizeSqlInsertRowRequest, normalizeSqlQueryRequest, normalizeSqlUpdateRowRequest, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
+import { normalizeGitDiffRequest, normalizeRunCodePayload, normalizeSearchOptions, normalizeSqlBrowseTableRequest, normalizeSqlDeleteRowRequest, normalizeSqlInsertRowRequest, normalizeSqlQueryRequest, normalizeSqlUpdateRowRequest, requireCallback, requireIdentifier, requireMaybeEmptyString, requirePath } from './validation'
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args) as Promise<T>
@@ -142,10 +142,7 @@ const api: ElectronAPI = Object.freeze({
     invoke<OperationResult>(IPC.GIT_UNSTAGE, requirePath(rootPath, 'Workspace root path'), filePaths.map((filePath) => requirePath(filePath))),
 
   gitDiscard: (rootPath: string, request: GitDiffRequest) =>
-    invoke<OperationResult>(IPC.GIT_DISCARD, requirePath(rootPath, 'Workspace root path'), {
-      ...request,
-      filePath: requirePath(request.filePath, 'Git diff path'),
-    }),
+    invoke<OperationResult>(IPC.GIT_DISCARD, requirePath(rootPath, 'Workspace root path'), normalizeGitDiffRequest(request)),
 
   gitCommit: (rootPath: string, message: string) =>
     invoke<OperationResult>(IPC.GIT_COMMIT, requirePath(rootPath, 'Workspace root path'), requireIdentifier(message, 'Commit message')),
@@ -157,10 +154,7 @@ const api: ElectronAPI = Object.freeze({
     invoke<OperationResult>(IPC.GIT_PULL, requirePath(rootPath, 'Workspace root path')),
 
   getGitDiff: (rootPath: string, request: GitDiffRequest) =>
-    invoke<string>(IPC.GIT_DIFF, requirePath(rootPath, 'Workspace root path'), {
-      ...request,
-      filePath: requirePath(request.filePath, 'Git diff path'),
-    }),
+    invoke<string>(IPC.GIT_DIFF, requirePath(rootPath, 'Workspace root path'), normalizeGitDiffRequest(request)),
 
   getAllFiles: (rootPath: string) =>
     invoke<string[]>(IPC.WORKSPACE_GET_ALL_FILES, requirePath(rootPath, 'Workspace root path')),

@@ -5,7 +5,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { confirmAction, showErrorToast, showSuccessToast } from '../../store/feedbackStore'
 
 interface ChangeSelection {
-  path: string
+  filePath: string
   status: GitFileStatus | string
   staged: boolean
 }
@@ -65,8 +65,8 @@ export function GitPanel() {
     setIsRefreshing(false)
   }, [refreshTree])
 
-  const handleAdd = async (path: string) => {
-    const result = await window.electronAPI.gitAdd(rootPath!, [path])
+  const handleAdd = async (filePath: string) => {
+    const result = await window.electronAPI.gitAdd(rootPath!, [filePath])
     if (result.success) {
       await refreshTree()
       showSuccessToast('Change staged successfully.', 'Staged')
@@ -85,8 +85,8 @@ export function GitPanel() {
     }
   }
 
-  const handleUnstage = async (path: string) => {
-    const result = await window.electronAPI.gitUnstage(rootPath!, [path])
+  const handleUnstage = async (filePath: string) => {
+    const result = await window.electronAPI.gitUnstage(rootPath!, [filePath])
     if (result.success) {
       await refreshTree()
       showSuccessToast('Change moved back to the working tree.', 'Unstaged')
@@ -166,8 +166,8 @@ export function GitPanel() {
 
   const allChanges = useMemo<ChangeSelection[]>(
     () => [
-      ...unstaged.map(([path, status]) => ({ path, status, staged: false })),
-      ...staged.map(([path, status]) => ({ path, status, staged: true })),
+      ...unstaged.map(([filePath, status]) => ({ filePath, status, staged: false })),
+      ...staged.map(([filePath, status]) => ({ filePath, status, staged: true })),
     ],
     [staged, unstaged]
   )
@@ -180,7 +180,7 @@ export function GitPanel() {
     }
 
     const selectionStillExists = selectedChange && allChanges.some((change) =>
-      change.path === selectedChange.path &&
+      change.filePath === selectedChange.filePath &&
       change.status === selectedChange.status &&
       change.staged === selectedChange.staged
     )
@@ -240,9 +240,9 @@ export function GitPanel() {
 
   const selectedMeta = selectedChange ? getStatusMeta(selectedChange.status, selectedChange.staged) : null
   const selectedName = selectedChange
-    ? selectedChange.path.split(window.electronAPI.isWindows ? '\\' : '/').pop() || 'unknown'
+    ? selectedChange.filePath.split(window.electronAPI.isWindows ? '\\' : '/').pop() || 'unknown'
     : ''
-  const selectedRelativePath = selectedChange ? getRelativePath(selectedChange.path, rootPath) : ''
+  const selectedRelativePath = selectedChange ? getRelativePath(selectedChange.filePath, rootPath) : ''
   const diffLines = diffPreview ? diffPreview.split('\n') : []
   const visibleDiffLines = diffLines.slice(0, 240)
   const isDiffTruncated = diffLines.length > visibleDiffLines.length
@@ -304,11 +304,11 @@ export function GitPanel() {
                         status={status}
                         rootPath={rootPath}
                         staged={false}
-                        selected={selectedChange?.path === path && !selectedChange.staged}
-                        onSelect={() => setSelectedChange({ path, status, staged: false })}
+                        selected={selectedChange?.filePath === path && !selectedChange.staged}
+                        onSelect={() => setSelectedChange({ filePath: path, status, staged: false })}
                         onOpen={() => openFile(path)}
                         onStageAction={() => handleAdd(path)}
-                        onDiscard={() => { void handleDiscard({ path, status, staged: false }) }}
+                        onDiscard={() => { void handleDiscard({ filePath: path, status, staged: false }) }}
                       />
                     ))}
                   </div>
@@ -326,11 +326,11 @@ export function GitPanel() {
                         status={status}
                         rootPath={rootPath}
                         staged
-                        selected={selectedChange?.path === path && selectedChange.staged}
-                        onSelect={() => setSelectedChange({ path, status, staged: true })}
+                        selected={selectedChange?.filePath === path && selectedChange.staged}
+                        onSelect={() => setSelectedChange({ filePath: path, status, staged: true })}
                         onOpen={() => openFile(path)}
                         onStageAction={() => handleUnstage(path)}
-                        onDiscard={() => { void handleDiscard({ path, status, staged: true }) }}
+                        onDiscard={() => { void handleDiscard({ filePath: path, status, staged: true }) }}
                       />
                     ))}
                   </div>
@@ -353,15 +353,15 @@ export function GitPanel() {
                   <span className="git-status-pill" style={{ color: selectedMeta.color }}>
                     {selectedMeta.label}
                   </span>
-                  <button className="git-preview-btn" onClick={() => openFile(selectedChange.path)}>
+                  <button className="git-preview-btn" onClick={() => openFile(selectedChange.filePath)}>
                     <i className="fa-regular fa-file-lines"></i> Open
                   </button>
                   {!selectedChange.staged ? (
-                    <button className="git-preview-btn primary" onClick={() => handleAdd(selectedChange.path)}>
+                    <button className="git-preview-btn primary" onClick={() => handleAdd(selectedChange.filePath)}>
                       <i className="fa-solid fa-plus"></i> Stage
                     </button>
                   ) : (
-                    <button className="git-preview-btn" onClick={() => handleUnstage(selectedChange.path)}>
+                    <button className="git-preview-btn" onClick={() => handleUnstage(selectedChange.filePath)}>
                       <i className="fa-solid fa-arrow-turn-up"></i> Unstage
                     </button>
                   )}
@@ -402,7 +402,7 @@ export function GitPanel() {
                     </div>
                   ) : (
                     visibleDiffLines.map((line, index) => (
-                      <div key={`${selectedChange.path}-${index}`} className={classifyDiffLine(line)}>
+                      <div key={`${selectedChange.filePath}-${index}`} className={classifyDiffLine(line)}>
                         {line || ' '}
                       </div>
                     ))

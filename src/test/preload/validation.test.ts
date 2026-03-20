@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  normalizeGitDiffRequest,
   normalizeRunCodePayload,
   normalizeSearchOptions,
   normalizeSqlBrowseTableRequest,
@@ -52,6 +53,33 @@ describe('preload validation helpers', () => {
       code: 'echo test',
       language: 'bash' as never,
     })).toThrow('Language must be either "javascript" or "python"')
+  })
+
+  it('normalizes git diff requests from both current and legacy payload shapes', () => {
+    expect(normalizeGitDiffRequest({
+      filePath: 'C:\\workspace\\src\\App.tsx',
+      staged: true,
+      status: 'modified',
+    })).toEqual({
+      filePath: 'C:\\workspace\\src\\App.tsx',
+      staged: true,
+      status: 'modified',
+    })
+
+    expect(normalizeGitDiffRequest({
+      path: 'C:\\workspace\\src\\main.ts',
+      staged: false,
+      status: 'untracked',
+    })).toEqual({
+      filePath: 'C:\\workspace\\src\\main.ts',
+      staged: false,
+      status: 'untracked',
+    })
+
+    expect(() => normalizeGitDiffRequest({
+      path: 'C:\\workspace\\src\\main.ts',
+      staged: 'yes' as never,
+    })).toThrow('Git diff staged flag must be a boolean')
   })
 
   it('normalizes SQL query requests', () => {

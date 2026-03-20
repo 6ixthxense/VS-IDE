@@ -1,4 +1,4 @@
-import BetterSqlite3 from 'better-sqlite3'
+import type BetterSqlite3 from 'better-sqlite3'
 import type { SqlAdapter } from './sql'
 import type {
   SqlBrowseFilter,
@@ -20,6 +20,7 @@ import type {
 import { workspaceService } from './workspace'
 
 type SqliteDatabaseHandle = InstanceType<typeof BetterSqlite3>
+type SqliteDriver = typeof BetterSqlite3
 
 interface SqliteColumnInfo {
   name: string
@@ -36,9 +37,36 @@ interface SqliteBrowseQueryParts {
 
 const SQLITE_TEXT_FILTER_OPERATORS = new Set<SqlFilterOperator>(['contains', 'startsWith', 'endsWith'])
 const SQLITE_NULL_FILTER_OPERATORS = new Set<SqlFilterOperator>(['isNull', 'isNotNull'])
+let sqliteDriver: SqliteDriver | null = null
 
 function quoteIdentifier(value: string) {
   return `"${value.replace(/"/g, '""')}"`
+}
+
+export function normalizeSqliteDriverError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (
+    message.includes('compiled against a different Node.js version') ||
+    message.includes('NODE_MODULE_VERSION')
+  ) {
+    return 'The SQLite native module does not match this Electron runtime. Run "npm run rebuild:native" in the project root, then restart the app.'
+  }
+
+  return message
+}
+
+function loadSqliteDriver(): SqliteDriver {
+  if (sqliteDriver) {
+    return sqliteDriver
+  }
+
+  try {
+    sqliteDriver = require('better-sqlite3') as SqliteDriver
+    return sqliteDriver
+  } catch (error) {
+    throw new Error(normalizeSqliteDriverError(error))
+  }
 }
 
 function normalizeCellValue(value: unknown): unknown {
@@ -774,6 +802,7 @@ export class SqliteAdapter implements SqlAdapter {
       return cached
     }
 
+    const BetterSqlite3 = loadSqliteDriver()
     const database = new BetterSqlite3(databasePath)
     this.databases.set(databasePath, database)
     return database

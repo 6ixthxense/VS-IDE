@@ -1,4 +1,4 @@
-import type { RunCodePayload, SearchOptions } from '../shared/types/ipc'
+import type { GitDiffRequest, RunCodePayload, SearchOptions } from '../shared/types/ipc'
 import type {
   SqlBrowseFilter,
   SqlBrowseTableRequest,
@@ -51,6 +51,26 @@ export function requireMaybeEmptyString(value: unknown, label: string) {
 export function requireOptionalPath(value: unknown, label = 'Path') {
   if (value == null) return undefined
   return requirePath(value, label)
+}
+
+export function normalizeGitDiffRequest(
+  request: Partial<GitDiffRequest> & { path?: unknown }
+): GitDiffRequest {
+  const record = requireRecord(request, 'Git diff request')
+
+  if (record.staged != null && typeof record.staged !== 'boolean') {
+    throw new TypeError('Git diff staged flag must be a boolean')
+  }
+
+  if (record.status != null && typeof record.status !== 'string') {
+    throw new TypeError('Git diff status must be a string')
+  }
+
+  return {
+    filePath: requirePath(record.filePath ?? record.path, 'Git diff path'),
+    staged: record.staged as boolean | undefined,
+    status: record.status as GitDiffRequest['status'],
+  }
 }
 
 export function normalizeSearchOptions(options?: Partial<SearchOptions>): Partial<SearchOptions> | undefined {

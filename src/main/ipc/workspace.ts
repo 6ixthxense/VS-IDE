@@ -15,6 +15,11 @@ function failedOperation(error: unknown, fallback: string): OperationResult {
   }
 }
 
+function resolveGitRequestPath(request: GitDiffRequest, label: string) {
+  const legacyRequest = request as GitDiffRequest & { path?: string }
+  return workspaceService.assertWithinWorkspace(request.filePath ?? legacyRequest.path, label)
+}
+
 export function registerWorkspaceHandlers() {
   ipcMain.handle(IPC.WORKSPACE_GET, () => {
     return workspaceService.getRootPath() ?? path.join(__dirname, '../../..')
@@ -101,7 +106,7 @@ export function registerWorkspaceHandlers() {
   ipcMain.handle(IPC.GIT_DISCARD, async (_, _rootPath: string, request: GitDiffRequest) => {
     try {
       const rootPath = workspaceService.requireRootPath()
-      const safeFilePath = workspaceService.assertWithinWorkspace(request.filePath, 'Git discard path')
+      const safeFilePath = resolveGitRequestPath(request, 'Git discard path')
       return gitDiscard(rootPath, { ...request, filePath: safeFilePath })
     } catch (error) {
       return failedOperation(error, 'Unable to discard local changes')
@@ -127,7 +132,7 @@ export function registerWorkspaceHandlers() {
   ipcMain.handle(IPC.GIT_DIFF, async (_, _rootPath: string, request: GitDiffRequest) => {
     try {
       const rootPath = workspaceService.requireRootPath()
-      const safeFilePath = workspaceService.assertWithinWorkspace(request.filePath, 'Git diff path')
+      const safeFilePath = resolveGitRequestPath(request, 'Git diff path')
       return getGitDiff(rootPath, { ...request, filePath: safeFilePath })
     } catch {
       return 'Unable to load diff preview.'

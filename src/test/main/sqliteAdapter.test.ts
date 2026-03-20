@@ -2,7 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SqliteAdapter } from '../../main/services/sqliteAdapter'
+import { normalizeSqliteDriverError, SqliteAdapter } from '../../main/services/sqliteAdapter'
 import { workspaceService } from '../../main/services/workspace'
 
 function createWorkspace() {
@@ -29,6 +29,12 @@ describe('sqliteAdapter', () => {
 
   const sqliteRuntimeCompatible = canOpenBetterSqlite3InCurrentRuntime()
   const runSqliteTest = sqliteRuntimeCompatible ? it : it.skip
+
+  it('rewrites native module ABI errors into rebuild guidance', () => {
+    expect(normalizeSqliteDriverError(
+      `The module '\\\\?\\C:\\workspace\\node_modules\\better-sqlite3\\build\\Release\\better_sqlite3.node' was compiled against a different Node.js version using NODE_MODULE_VERSION 132. This version of Node.js requires NODE_MODULE_VERSION 137.`
+    )).toContain('npm run rebuild:native')
+  })
 
   runSqliteTest('executes queries and introspects schema for workspace sqlite files', async () => {
     const workspaceRoot = createWorkspace()
