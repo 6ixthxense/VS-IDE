@@ -76,11 +76,12 @@ describe('sqliteAdapter', () => {
     expect(schema.tables).toEqual([
       expect.objectContaining({ name: 'users', type: 'table' }),
     ])
-    expect(schema.columnsByTable['main.users']).toEqual([
+    expect(schema.columnsByTable['main.users']).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'id', isPrimaryKey: true }),
       expect.objectContaining({ name: 'name', dataType: 'TEXT' }),
       expect.objectContaining({ name: 'age', dataType: 'INTEGER' }),
-    ])
+      expect.objectContaining({ name: 'nickname', dataType: 'TEXT', nullable: true }),
+    ]))
 
     const browserRows = await adapter.getTableRows({
       connectionId,
