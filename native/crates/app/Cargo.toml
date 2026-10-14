@@ -21,3 +21,9 @@ anyhow = "1"
 serde_json = "1"
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["font-kit", "x11", "wayland"] }
 gpui-kit-assets = "0.7.3"
+vsm-core = { path = "../core" }
+vsm-search = { path = "../search" }
+vsm-fs_index = { path = "../fs_index" }
+
+[dev-dependencies]
+tempfile = "3"

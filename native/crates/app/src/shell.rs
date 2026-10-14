@@ -1,91 +1,183 @@
 //! The main window view: activity bar, explorer, tabbed editors, status bar and
 //! the Quick Open / command palette overlay.
 //!
-//! All state lives here and changes only in response to user input (key, mouse)
-//! or palette events. There are no timers, pollers or background tasks, so an
-//! unfocused/idle window never repaints. (gpui-component's caret blink is the
-//! one library-owned timer: it only runs while an editor has focus.)
+//! All state lives here and changes only in response to user input (key, mouse),
+//! palette events or the completion of a one-shot background job (workspace
+//! scan, file read, Quick Open ranking). There are no timers, pollers or
+//! animation requests. The one library-owned timer is gpui-component's caret
+//! blink (500 ms): it runs only while an editor has keyboard focus, and the
+//! shell moves focus off the editor whenever the window is deactivated so a
+//! background window does not repaint (see `Shell::on_activation_changed`).
+//!
+//! Data-loss guards (all without timers): closing a dirty tab, quitting, closing
+//! the window and reloading from disk each need a second request within
+//! [`CONFIRM_WINDOW`]; saving refuses to overwrite a file that changed on disk
+//! unless Ctrl+S is pressed a second time.
 
 use std::{
     collections::{HashMap, HashSet},
+    io,
+    path::PathBuf,
     rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use gpui::{
     div, prelude::*, px, transparent_black, App, Context, Entity, FocusHandle, ScrollStrategy,
-    SharedString, Subscription, Window,
+    SharedString, Subscription, Task, Window,
 };
 use gpui_component::{
     input::{Editor, EditorState, InputEvent},
     list::ListItem,
     resizable::{h_resizable, resizable_panel},
-    tree::{Tree, TreeEntry, TreeItem, TreeState},
+    tree::{Tree, TreeEntry, TreeEvent, TreeItem, TreeState},
     ActiveTheme as _, Icon, IconName, StyledExt as _,
 };
 
 use crate::{
     commands::{
-        Command, CommandPalette, CloseTab, NextTab, PrevTab, QuickOpen, Quit, Save, ToggleSidebar,
+        CloseTab, Command, CommandPalette, NextTab, PrevTab, QuickOpen, Quit, Save, ToggleSidebar,
     },
     language::{self, Lang},
     palette::{Palette, PaletteEvent, PaletteKind},
     statusbar::{DocInfo, StatusBar},
-    workspace::{FileEntry, Scan, Workspace},
+    workspace::{
+        self, rel_key, scan_dir, text_hash, DocFormat, FileEntry, FileStamp, LoadedText, SaveError,
+        Scan, Workspace,
+    },
 };
 
+/// How long a "press again to confirm" request stays armed.
+const CONFIRM_WINDOW: Duration = Duration::from_secs(10);
+
 struct Tab {
+    /// Canonical workspace-relative path (as first opened).
     rel: String,
+    /// `rel_key(rel)`: identity for "is this file already open".
+    key: String,
     name: SharedString,
     lang: Lang,
     editor: Entity<EditorState>,
     dirty: bool,
-    crlf: bool,
+    format: DocFormat,
+    /// On-disk state at open / last save, to detect external changes.
+    stamp: FileStamp,
+    /// Hash of the buffer text at open / last save (unchanged-buffer check).
+    clean_hash: u64,
     _change: Subscription,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingKind {
+    Close,
+    Overwrite,
+    Reload,
+    Quit,
+}
+
+/// An armed "do it again to confirm" request.
+struct Pending {
+    kind: PendingKind,
+    key: String,
+    at: Instant,
+}
+
+/// Lifetime of the status-bar message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoticeKind {
+    /// Plain information; dropped when the user moves to another tab.
+    Info,
+    /// Belongs to an armed [`Pending`]; dropped with it.
+    Pending,
+    /// A failure (cannot open, save failed...); kept until the next notice or edit.
+    Error,
+}
+
+/// Everything the background walk produces (all `Send`).
+struct Indexed {
+    scan: Scan,
+    files: Vec<String>,
+    dirs: HashSet<String>,
 }
 
 pub struct Shell {
     ws: Workspace,
-    /// Relative paths of all files (for Quick Open).
-    files: Rc<Vec<String>>,
+    /// Relative paths of all files (Quick Open); shared with background ranking.
+    files: Arc<Vec<String>>,
     /// Relative paths of directories (tree rows that must not open as files).
     dirs: Rc<HashSet<String>>,
     truncated: bool,
+    /// A workspace scan is in flight.
+    loading: bool,
+    scan_task: Option<Task<()>>,
+    /// Folders the user has expanded; survives Explorer refreshes.
+    expanded: HashSet<String>,
     tree: Entity<TreeState>,
     tabs: Vec<Tab>,
     active: Option<usize>,
-    /// Tab (by path) that asked to be closed while dirty; a second close confirms.
-    pending_close: Option<String>,
+    /// Keys of files currently being read, to ignore duplicate open requests.
+    opening: HashSet<String>,
+    pending: Option<Pending>,
+    notice_kind: NoticeKind,
     /// Most recently used files, newest first.
     mru: Vec<String>,
     palette: Option<(Entity<Palette>, Subscription)>,
     sidebar_visible: bool,
     status: Entity<StatusBar>,
     focus: FocusHandle,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl Shell {
     pub fn new(ws: Workspace, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let scan = ws.scan();
-        let (items, files, dirs) = index(&scan);
-        let tree = cx.new(|cx| TreeState::new(cx).items(items));
+        let tree = cx.new(|cx| TreeState::new(cx));
         let status = cx.new(|_| StatusBar::new(ws.name()));
         let focus = cx.focus_handle();
         focus.focus(window, cx);
-        Self {
-            files: Rc::new(files),
-            dirs: Rc::new(dirs),
-            truncated: scan.truncated,
+
+        let me = cx.weak_entity();
+        window.on_window_should_close(cx, move |_, cx| {
+            me.update(cx, |this, cx| this.guard_quit(cx))
+                .unwrap_or(true)
+        });
+        let subscriptions = vec![
+            cx.observe_window_activation(window, |this, window, cx| {
+                this.on_activation_changed(window, cx)
+            }),
+            cx.subscribe(&tree, |this, _, event: &TreeEvent, _| match event {
+                TreeEvent::Expanded(id) => {
+                    this.expanded.insert(id.to_string());
+                }
+                TreeEvent::Collapsed(id) => {
+                    this.expanded.remove(id.as_str());
+                }
+            }),
+        ];
+
+        let mut this = Self {
             ws,
+            files: Arc::new(Vec::new()),
+            dirs: Rc::new(HashSet::new()),
+            truncated: false,
+            loading: false,
+            scan_task: None,
+            expanded: HashSet::new(),
             tree,
             tabs: Vec::new(),
             active: None,
-            pending_close: None,
+            opening: HashSet::new(),
+            pending: None,
+            notice_kind: NoticeKind::Info,
             mru: Vec::new(),
             palette: None,
             sidebar_visible: true,
             status,
             focus,
-        }
+            _subscriptions: subscriptions,
+        };
+        this.start_scan(false, cx);
+        this
     }
 
     // ---------------------------------------------------------------- state
@@ -94,9 +186,58 @@ impl Shell {
         self.active.and_then(|ix| self.tabs.get(ix))
     }
 
-    fn notice(&mut self, text: Option<String>, cx: &mut Context<Self>) {
-        let text = text.map(SharedString::from);
-        self.status.update(cx, |s, cx| s.set_notice(text, cx));
+    fn set_notice(&mut self, text: impl Into<String>, kind: NoticeKind, cx: &mut Context<Self>) {
+        self.notice_kind = kind;
+        let text = SharedString::from(text.into());
+        self.status.update(cx, |s, cx| s.set_notice(Some(text), cx));
+    }
+
+    fn clear_notice(&mut self, cx: &mut Context<Self>) {
+        self.notice_kind = NoticeKind::Info;
+        self.status.update(cx, |s, cx| s.set_notice(None, cx));
+    }
+
+    /// Called when the user moves on (another tab, a close): drops the previous
+    /// tab's pending message and plain info, but keeps errors.
+    fn clear_transient(&mut self, cx: &mut Context<Self>) {
+        self.pending = None;
+        if matches!(self.notice_kind, NoticeKind::Pending | NoticeKind::Info) {
+            self.clear_notice(cx);
+        }
+    }
+
+    /// Arm `kind` for `key` and return `false`, or, if the same request is
+    /// already armed (and recent), disarm it and return `true` (= confirmed).
+    fn confirm(
+        &mut self,
+        kind: PendingKind,
+        key: &str,
+        message: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.take_pending(kind, key) {
+            self.clear_notice(cx);
+            return true;
+        }
+        self.pending = Some(Pending {
+            kind,
+            key: key.to_string(),
+            at: Instant::now(),
+        });
+        self.set_notice(message, NoticeKind::Pending, cx);
+        false
+    }
+
+    /// Disarm `kind` for `key`; `true` if it was armed and still fresh.
+    fn take_pending(&mut self, kind: PendingKind, key: &str) -> bool {
+        let hit = self
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.kind == kind && p.key == key && p.at.elapsed() < CONFIRM_WINDOW);
+        if hit {
+            self.pending = None;
+        }
+        hit
     }
 
     fn sync_status(&mut self, cx: &mut Context<Self>) {
@@ -106,7 +247,7 @@ impl Shell {
                     path: t.rel.clone().into(),
                     language: t.lang.label.into(),
                     dirty: t.dirty,
-                    crlf: t.crlf,
+                    crlf: t.format.eol == workspace::LineEnding::Crlf,
                 },
                 t.editor.clone(),
             )
@@ -121,90 +262,74 @@ impl Shell {
         }
     }
 
-    /// Re-scan the workspace (Explorer: Refresh). Synchronous in this spike;
-    /// `vsm-fs_index` should provide an async/incremental version.
-    fn refresh_explorer(&mut self, cx: &mut Context<Self>) {
-        let scan = self.ws.scan();
-        let (items, files, dirs) = index(&scan);
-        self.files = Rc::new(files);
+    /// Background windows must not blink a caret (that is a 2 Hz repaint):
+    /// park focus on the shell while inactive, restore it on activation.
+    fn on_activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !window.is_window_active() {
+            self.focus.focus(window, cx);
+        } else if let Some((palette, _)) = &self.palette {
+            palette.update(cx, |p, cx| p.focus(window, cx));
+        } else {
+            self.focus_editor(window, cx);
+        }
+    }
+
+    // ------------------------------------------------------------- explorer
+
+    /// Walk the workspace on the background executor. The tree shows a loading
+    /// state until the result arrives; a newer scan replaces an older one.
+    fn start_scan(&mut self, announce: bool, cx: &mut Context<Self>) {
+        self.loading = true;
+        let root: PathBuf = self.ws.root().to_path_buf();
+        self.scan_task = Some(cx.spawn(async move |this, cx| {
+            let indexed = cx
+                .background_spawn(async move {
+                    let scan = scan_dir(&root);
+                    let mut files: Vec<String> = scan.files().map(|e| e.rel.clone()).collect();
+                    files.sort();
+                    let dirs = scan
+                        .entries
+                        .iter()
+                        .filter(|e| e.is_dir)
+                        .map(|e| e.rel.clone())
+                        .collect();
+                    Indexed { scan, files, dirs }
+                })
+                .await;
+            this.update(cx, |this, cx| this.apply_scan(indexed, announce, cx))
+                .ok();
+        }));
+        cx.notify();
+    }
+
+    fn apply_scan(&mut self, indexed: Indexed, announce: bool, cx: &mut Context<Self>) {
+        let Indexed { scan, files, dirs } = indexed;
+        let items = build_items(&scan, &self.expanded);
+        self.files = Arc::new(files);
         self.dirs = Rc::new(dirs);
         self.truncated = scan.truncated;
+        self.loading = false;
         self.tree.update(cx, |tree, cx| tree.set_items(items, cx));
-        self.notice(Some("Explorer refreshed".into()), cx);
+        // Keep the active file highlighted (without expanding anything).
+        if let Some(rel) = self.active_tab().map(|t| t.rel.clone()) {
+            self.select_in_tree(&rel, cx);
+        }
+        if announce {
+            self.set_notice("Explorer refreshed", NoticeKind::Info, cx);
+        }
         cx.notify();
     }
 
-    // ----------------------------------------------------------------- tabs
-
-    pub fn open_file(&mut self, rel: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(ix) = self.tabs.iter().position(|t| t.rel == rel) {
-            self.activate(ix, window, cx);
-            return;
-        }
-        let loaded = match self.ws.read_text(rel) {
-            Ok(loaded) => loaded,
-            Err(err) => {
-                self.notice(Some(format!("Cannot open {rel}: {err}")), cx);
-                return;
-            }
-        };
-        let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
-        let lang = language::detect(&name);
-        let editor = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language(lang.id)
-                .default_value(loaded.text)
-        });
-        let change = cx.subscribe_in(
-            &editor,
-            window,
-            |this: &mut Self, editor, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.mark_dirty(editor, cx);
-                }
-            },
-        );
-        self.tabs.push(Tab {
-            rel: rel.to_string(),
-            name: name.into(),
-            lang,
-            editor,
-            dirty: false,
-            crlf: loaded.crlf,
-            _change: change,
-        });
-        let ix = self.tabs.len() - 1;
-        self.activate(ix, window, cx);
+    fn refresh_explorer(&mut self, cx: &mut Context<Self>) {
+        self.start_scan(true, cx);
     }
 
-    fn mark_dirty(&mut self, editor: &Entity<EditorState>, cx: &mut Context<Self>) {
-        let Some(ix) = self.tabs.iter().position(|t| &t.editor == editor) else {
-            return;
-        };
-        if !self.tabs[ix].dirty {
-            self.tabs[ix].dirty = true;
-            if self.active == Some(ix) {
-                self.status.update(cx, |s, cx| s.set_dirty(true, cx));
-            }
-            cx.notify();
-        }
-        self.pending_close = None;
-    }
-
-    fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix >= self.tabs.len() {
-            return;
-        }
-        self.active = Some(ix);
-        self.pending_close = None;
-        let rel = self.tabs[ix].rel.clone();
-        self.mru.retain(|r| r != &rel);
-        self.mru.insert(0, rel.clone());
-        self.sync_status(cx);
-        self.notice(None, cx);
-        self.reveal_in_tree(&rel, cx);
-        self.focus_editor(window, cx);
-        cx.notify();
+    fn select_in_tree(&mut self, rel: &str, cx: &mut Context<Self>) {
+        let id: SharedString = rel.to_string().into();
+        self.tree.update(cx, |tree, cx| {
+            let ix = tree.index_of(&id);
+            tree.set_selected_index(ix, cx);
+        });
     }
 
     fn reveal_in_tree(&mut self, rel: &str, cx: &mut Context<Self>) {
@@ -216,17 +341,166 @@ impl Shell {
         });
     }
 
+    // ----------------------------------------------------------------- tabs
+
+    pub fn open_file(&mut self, rel: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_paths(vec![rel.to_string()], window, cx);
+    }
+
+    /// Open `paths` in order (relative to the workspace root, or absolute paths
+    /// inside it). Each path is normalised and checked to be inside the
+    /// workspace; the file is read on a background thread, so the UI never
+    /// blocks on disk. Failures become status-bar errors and do not stop the
+    /// remaining paths.
+    pub fn open_paths(&mut self, paths: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let mut queue = paths.into_iter();
+        while let Some(raw) = queue.next() {
+            let rel = match self.ws.normalize(&raw) {
+                Ok(rel) => rel,
+                Err(err) => {
+                    self.set_notice(format!("Cannot open {raw}: {err}"), NoticeKind::Error, cx);
+                    continue;
+                }
+            };
+            let key = rel_key(&rel);
+            if let Some(ix) = self.tabs.iter().position(|t| t.key == key) {
+                self.activate(ix, window, cx);
+                continue;
+            }
+            if !self.opening.insert(key.clone()) {
+                continue; // already being read
+            }
+            let rest: Vec<String> = queue.collect();
+            let abs = self.ws.abs(&rel);
+            self.spawn_load(abs, window, cx, move |this, loaded, window, cx| {
+                this.opening.remove(&key);
+                match loaded {
+                    Ok(loaded) => this.add_tab(rel, key, loaded, window, cx),
+                    Err(err) => {
+                        this.set_notice(format!("Cannot open {rel}: {err}"), NoticeKind::Error, cx)
+                    }
+                }
+                // Continue with the remaining paths, preserving their order.
+                this.open_paths(rest, window, cx);
+            });
+            return;
+        }
+    }
+
+    /// Read + decode `path` on the background executor, then run `done` on the UI.
+    fn spawn_load(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        done: impl FnOnce(&mut Self, io::Result<LoadedText>, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        cx.spawn_in(window, async move |this, cx| {
+            let loaded = cx
+                .background_spawn(async move { workspace::load(&path) })
+                .await;
+            this.update_in(cx, |this, window, cx| done(this, loaded, window, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    fn add_tab(
+        &mut self,
+        rel: String,
+        key: String,
+        loaded: LoadedText,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(ix) = self.tabs.iter().position(|t| t.key == key) {
+            self.activate(ix, window, cx);
+            return;
+        }
+        let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+        let lang = language::detect(&name);
+        let text = loaded.text;
+        let editor = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(lang.id)
+                .default_value(text)
+        });
+        let change = cx.subscribe_in(
+            &editor,
+            window,
+            |this: &mut Self, editor, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.mark_dirty(editor, cx);
+                }
+            },
+        );
+        self.tabs.push(Tab {
+            rel,
+            key,
+            name: name.into(),
+            lang,
+            editor,
+            dirty: false,
+            format: loaded.format,
+            stamp: loaded.stamp,
+            clean_hash: loaded.hash,
+            _change: change,
+        });
+        let ix = self.tabs.len() - 1;
+        self.activate(ix, window, cx);
+    }
+
+    fn mark_dirty(&mut self, editor: &Entity<EditorState>, cx: &mut Context<Self>) {
+        let Some(ix) = self.tabs.iter().position(|t| &t.editor == editor) else {
+            return;
+        };
+        // Any edit disarms pending confirmations and acknowledges old errors.
+        self.pending = None;
+        if matches!(self.notice_kind, NoticeKind::Pending | NoticeKind::Error) {
+            self.clear_notice(cx);
+        }
+        if !self.tabs[ix].dirty {
+            self.tabs[ix].dirty = true;
+            if self.active == Some(ix) {
+                self.status.update(cx, |s, cx| s.set_dirty(true, cx));
+            }
+            cx.notify();
+        }
+    }
+
+    fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.tabs.len() {
+            return;
+        }
+        self.active = Some(ix);
+        let rel = self.tabs[ix].rel.clone();
+        self.mru.retain(|r| r != &rel);
+        self.mru.insert(0, rel.clone());
+        self.sync_status(cx);
+        self.clear_transient(cx);
+        self.reveal_in_tree(&rel, cx);
+        self.focus_editor(window, cx);
+        cx.notify();
+    }
+
+    fn dirty_count(&self) -> usize {
+        self.tabs.iter().filter(|t| t.dirty).count()
+    }
+
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self.tabs.get(ix) else { return };
-        if tab.dirty && self.pending_close.as_deref() != Some(tab.rel.as_str()) {
-            self.pending_close = Some(tab.rel.clone());
-            let msg = format!("{} has unsaved changes: save (Ctrl+S) or close again to discard", tab.name);
-            self.notice(Some(msg), cx);
-            return;
+        if tab.dirty {
+            let msg = format!(
+                "{} has unsaved changes: save (Ctrl+S) or close again to discard",
+                tab.name
+            );
+            let key = tab.key.clone();
+            if !self.confirm(PendingKind::Close, &key, msg, cx) {
+                return;
+            }
         }
         let closed = self.tabs.remove(ix);
         self.mru.retain(|r| r != &closed.rel);
-        self.pending_close = None;
         self.active = if self.tabs.is_empty() {
             None
         } else {
@@ -237,7 +511,7 @@ impl Shell {
                 .or(Some(ix.min(self.tabs.len() - 1)))
         };
         self.sync_status(cx);
-        self.notice(None, cx);
+        self.clear_transient(cx);
         self.focus_editor(window, cx);
         cx.notify();
     }
@@ -251,24 +525,109 @@ impl Shell {
         self.activate((cur + delta).rem_euclid(len) as usize, window, cx);
     }
 
+    /// One guard for every way out of the app (Quit action, palette command,
+    /// window close button). Returns `true` when it is fine to exit now.
+    fn guard_quit(&mut self, cx: &mut Context<Self>) -> bool {
+        let dirty = self.dirty_count();
+        if dirty == 0 {
+            return true;
+        }
+        let msg = format!(
+            "{dirty} file(s) with unsaved changes: save them (Ctrl+S), or quit again to discard"
+        );
+        self.confirm(PendingKind::Quit, "", msg, cx)
+    }
+
+    // ------------------------------------------------------- save / reload
+
     fn save_active(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.active else { return };
         let tab = &self.tabs[ix];
+        let (key, rel, name) = (tab.key.clone(), tab.rel.clone(), tab.name.clone());
+        // A second Ctrl+S right after a conflict notice forces the overwrite.
+        let force = self.take_pending(PendingKind::Overwrite, &key);
+        let tab = &self.tabs[ix];
         let text = tab.editor.read(cx).value();
-        match self.ws.write_text(&tab.rel, &text, tab.crlf) {
-            Ok(()) => {
-                let msg = format!("Saved {}", tab.name);
-                self.tabs[ix].dirty = false;
-                self.pending_close = None;
+        let hash = text_hash(&text);
+
+        if !force && hash == tab.clean_hash {
+            // Buffer equals what was loaded/saved: leave the file byte-identical.
+            self.tabs[ix].dirty = false;
+            self.status.update(cx, |s, cx| s.set_dirty(false, cx));
+            self.set_notice(
+                format!("No changes to save in {name}"),
+                NoticeKind::Info,
+                cx,
+            );
+            cx.notify();
+            return;
+        }
+
+        match self.ws.save(&rel, &text, &tab.format, &tab.stamp, force) {
+            Ok(stamp) => {
+                let tab = &mut self.tabs[ix];
+                tab.stamp = stamp;
+                tab.clean_hash = hash;
+                tab.dirty = false;
+                self.pending = None;
                 self.status.update(cx, |s, cx| s.set_dirty(false, cx));
-                self.notice(Some(msg), cx);
+                self.set_notice(format!("Saved {name}"), NoticeKind::Info, cx);
                 cx.notify();
             }
+            Err(SaveError::Conflict) => {
+                self.pending = None;
+                let msg = format!(
+                    "{name} changed on disk: Ctrl+S again to overwrite, or run \"File: Reload from Disk\""
+                );
+                self.confirm(PendingKind::Overwrite, &key, msg, cx);
+            }
             Err(err) => {
-                let msg = format!("Save failed: {err}");
-                self.notice(Some(msg), cx);
+                // A failed save must not leave a close/quit confirmation armed.
+                self.pending = None;
+                self.set_notice(format!("Save failed: {err}"), NoticeKind::Error, cx);
             }
         }
+    }
+
+    fn reload_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.active_tab() else { return };
+        let (key, rel, name, dirty) = (
+            tab.key.clone(),
+            tab.rel.clone(),
+            tab.name.clone(),
+            tab.dirty,
+        );
+        if dirty {
+            let msg = format!("{name} has unsaved changes: reload again to discard them");
+            if !self.confirm(PendingKind::Reload, &key, msg, cx) {
+                return;
+            }
+        }
+        let abs = self.ws.abs(&rel);
+        self.spawn_load(abs, window, cx, move |this, loaded, window, cx| {
+            let Some(ix) = this.tabs.iter().position(|t| t.key == key) else {
+                return;
+            };
+            match loaded {
+                Ok(loaded) => {
+                    let text = loaded.text;
+                    let tab = &mut this.tabs[ix];
+                    tab.editor
+                        .update(cx, |state, cx| state.set_value(text, window, cx));
+                    tab.format = loaded.format;
+                    tab.stamp = loaded.stamp;
+                    tab.clean_hash = loaded.hash;
+                    tab.dirty = false;
+                    this.pending = None;
+                    if this.active == Some(ix) {
+                        this.sync_status(cx);
+                    }
+                    this.set_notice(format!("Reloaded {name} from disk"), NoticeKind::Info, cx);
+                    cx.notify();
+                }
+                Err(err) => this.set_notice(format!("Reload failed: {err}"), NoticeKind::Error, cx),
+            }
+        });
     }
 
     // -------------------------------------------------------------- palette
@@ -324,8 +683,14 @@ impl Shell {
                 cx.notify();
             }
             Command::RefreshExplorer => self.refresh_explorer(cx),
+            Command::ReloadFromDisk => self.reload_active(window, cx),
+            Command::Quit => {
+                if self.guard_quit(cx) {
+                    cx.quit();
+                }
+            }
             Command::Stub(what) => {
-                self.notice(Some(format!("Not implemented yet: {what}")), cx);
+                self.set_notice(format!("Not implemented yet: {what}"), NoticeKind::Info, cx);
             }
         }
     }
@@ -343,26 +708,29 @@ impl Shell {
             (IconName::Cpu, "System monitor (vsm-sysmon)", None),
             (IconName::HardDrive, "Database (vsm-db)", None),
         ];
-        let buttons = entries.into_iter().enumerate().map(|(ix, (icon, stub, cmd))| {
-            let active = cmd.is_some() && self.sidebar_visible;
-            div()
-                .id(("activity", ix))
-                .flex()
-                .items_center()
-                .justify_center()
-                .flex_none()
-                .size(px(48.))
-                .cursor_pointer()
-                .border_l_2()
-                .border_color(if active { primary } else { transparent_black() })
-                .text_color(if active { fg } else { dim })
-                .hover(|style| style.text_color(fg))
-                .child(Icon::new(icon).size_5())
-                .on_click(cx.listener(move |this, _, window, cx| match cmd {
-                    Some(cmd) => this.run_command(cmd, window, cx),
-                    None => this.run_command(Command::Stub(stub), window, cx),
-                }))
-        });
+        let buttons = entries
+            .into_iter()
+            .enumerate()
+            .map(|(ix, (icon, stub, cmd))| {
+                let active = cmd.is_some() && self.sidebar_visible;
+                div()
+                    .id(("activity", ix))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .flex_none()
+                    .size(px(48.))
+                    .cursor_pointer()
+                    .border_l_2()
+                    .border_color(if active { primary } else { transparent_black() })
+                    .text_color(if active { fg } else { dim })
+                    .hover(|style| style.text_color(fg))
+                    .child(Icon::new(icon).size_5())
+                    .on_click(cx.listener(move |this, _, window, cx| match cmd {
+                        Some(cmd) => this.run_command(cmd, window, cx),
+                        None => this.run_command(Command::Stub(stub), window, cx),
+                    }))
+            });
         div()
             .v_flex()
             .flex_none()
@@ -379,41 +747,44 @@ impl Shell {
         let muted = theme.muted_foreground;
         let fg = theme.sidebar_foreground;
 
-        let tree = Tree::new(&self.tree, move |ix, entry: &TreeEntry, _selected, _window, _cx| {
-            let rel = entry.item().id.clone();
-            let is_dir = dirs.contains(rel.as_str());
-            let icon = if is_dir {
-                if entry.is_expanded() {
-                    IconName::FolderOpen
-                } else {
-                    IconName::Folder
-                }
-            } else {
-                IconName::File
-            };
-            let shell = shell.clone();
-            ListItem::new(ix)
-                .pl(px(8. + 12. * entry.depth() as f32))
-                .pr_2()
-                .py(px(2.))
-                .text_sm()
-                .text_color(fg)
-                .child(
-                    div()
-                        .h_flex()
-                        .gap_1p5()
-                        .min_w_0()
-                        .child(Icon::new(icon).size_4().text_color(muted).flex_none())
-                        .child(div().truncate().child(entry.item().label.clone())),
-                )
-                .on_click(move |_, window: &mut Window, cx: &mut App| {
-                    if is_dir {
-                        return;
+        let tree = Tree::new(
+            &self.tree,
+            move |ix, entry: &TreeEntry, _selected, _window, _cx| {
+                let rel = entry.item().id.clone();
+                let is_dir = dirs.contains(rel.as_str());
+                let icon = if is_dir {
+                    if entry.is_expanded() {
+                        IconName::FolderOpen
+                    } else {
+                        IconName::Folder
                     }
-                    let rel = rel.clone();
-                    let _ = shell.update(cx, |this, cx| this.open_file(&rel, window, cx));
-                })
-        });
+                } else {
+                    IconName::File
+                };
+                let shell = shell.clone();
+                ListItem::new(ix)
+                    .pl(px(8. + 12. * entry.depth() as f32))
+                    .pr_2()
+                    .py(px(2.))
+                    .text_sm()
+                    .text_color(fg)
+                    .child(
+                        div()
+                            .h_flex()
+                            .gap_1p5()
+                            .min_w_0()
+                            .child(Icon::new(icon).size_4().text_color(muted).flex_none())
+                            .child(div().truncate().child(entry.item().label.clone())),
+                    )
+                    .on_click(move |_, window: &mut Window, cx: &mut App| {
+                        if is_dir {
+                            return;
+                        }
+                        let rel = rel.clone();
+                        let _ = shell.update(cx, |this, cx| this.open_file(&rel, window, cx));
+                    })
+            },
+        );
 
         div()
             .v_flex()
@@ -446,6 +817,16 @@ impl Shell {
                         .child("Folder is large; listing truncated"),
                 )
             })
+            .when(self.loading && self.files.is_empty(), |this| {
+                this.child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Loading..."),
+                )
+            })
             .child(div().flex_1().min_h_0().child(tree))
     }
 
@@ -454,7 +835,11 @@ impl Shell {
         let active = self.active == Some(ix);
         let (border, primary, warning) = (theme.border, theme.primary, theme.warning);
         let hover_bg = theme.secondary_hover;
-        let fg = if active { theme.tab_active_foreground } else { theme.tab_foreground };
+        let fg = if active {
+            theme.tab_active_foreground
+        } else {
+            theme.tab_foreground
+        };
         div()
             .id(("tab", ix))
             .h_flex()
@@ -559,7 +944,13 @@ fn welcome(cx: &App) -> impl IntoElement + use<> {
         div()
             .h_flex()
             .gap_3()
-            .child(div().w(px(140.)).text_right().text_color(theme.foreground).child(keys))
+            .child(
+                div()
+                    .w(px(140.))
+                    .text_right()
+                    .text_color(theme.foreground)
+                    .child(keys),
+            )
             .child(div().child(what))
     };
     div()
@@ -630,7 +1021,11 @@ impl Render for Shell {
                 this.sidebar_visible = !this.sidebar_visible;
                 cx.notify();
             }))
-            .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
+            .on_action(cx.listener(|this, _: &Quit, _, cx| {
+                if this.guard_quit(cx) {
+                    cx.quit();
+                }
+            }))
             .child(
                 div()
                     .h_flex()
@@ -655,15 +1050,19 @@ impl Render for Shell {
     }
 }
 
-/// Build tree items plus the flat file list and directory set from a scan.
-fn index(scan: &Scan) -> (Vec<TreeItem>, Vec<String>, HashSet<String>) {
+/// Build the tree from a scan; folders in `expanded` start open.
+fn build_items(scan: &Scan, expanded: &HashSet<String>) -> Vec<TreeItem> {
     let mut by_parent: HashMap<&str, Vec<&FileEntry>> = HashMap::new();
     for entry in &scan.entries {
         let parent = entry.rel.rsplit_once('/').map_or("", |(p, _)| p);
         by_parent.entry(parent).or_default().push(entry);
     }
 
-    fn build(parent: &str, by_parent: &HashMap<&str, Vec<&FileEntry>>) -> Vec<TreeItem> {
+    fn build(
+        parent: &str,
+        by_parent: &HashMap<&str, Vec<&FileEntry>>,
+        expanded: &HashSet<String>,
+    ) -> Vec<TreeItem> {
         by_parent
             .get(parent)
             .map(|children| {
@@ -672,7 +1071,8 @@ fn index(scan: &Scan) -> (Vec<TreeItem>, Vec<String>, HashSet<String>) {
                     .map(|e| {
                         let item = TreeItem::new(e.rel.clone(), e.name().to_string());
                         if e.is_dir {
-                            item.children(build(&e.rel, by_parent))
+                            item.expanded(expanded.contains(&e.rel))
+                                .children(build(&e.rel, by_parent, expanded))
                         } else {
                             item
                         }
@@ -682,13 +1082,5 @@ fn index(scan: &Scan) -> (Vec<TreeItem>, Vec<String>, HashSet<String>) {
             .unwrap_or_default()
     }
 
-    let mut files: Vec<String> = scan.files().map(|e| e.rel.clone()).collect();
-    files.sort();
-    let dirs = scan
-        .entries
-        .iter()
-        .filter(|e| e.is_dir)
-        .map(|e| e.rel.clone())
-        .collect();
-    (build("", &by_parent), files, dirs)
+    build("", &by_parent, expanded)
 }

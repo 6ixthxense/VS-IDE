@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::locale::locale_compare;
+use vsm_core::paths::locale_compare;
 use crate::types::{TaskDefinition, TaskSource};
 
 /// `npm run <script>` tasks for every entry in `package.json` `scripts`, sorted by name.

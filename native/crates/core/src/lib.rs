@@ -12,6 +12,7 @@
 //! * [`text_edits`] - span based text edits (`textEdits.ts`).
 //! * [`types`] - shared data types (`shared/types/file.ts`).
 //! * [`fsutil`] - atomic JSON/file writes used by the persistence layers.
+//! * [`paths`] - the single canonical path, sort and skip-list helpers.
 //!
 //! Everything here is synchronous and free of UI dependencies. All fallible
 //! operations return [`CoreError`].
@@ -20,6 +21,7 @@ pub mod appearance;
 pub mod config;
 pub mod error;
 pub mod fsutil;
+pub mod paths;
 pub mod recovery;
 pub mod text_edits;
 pub mod types;

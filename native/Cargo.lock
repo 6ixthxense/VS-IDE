@@ -7435,6 +7435,10 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "serde_json",
+ "tempfile",
+ "vsm-core",
+ "vsm-fs_index",
+ "vsm-search",
 ]
 
 [[package]]
@@ -7462,6 +7466,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "vsm-core",
 ]
 
 [[package]]
@@ -7485,6 +7490,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "vsm-core",
 ]
 
 [[package]]
@@ -7514,6 +7520,8 @@ dependencies = [
  "regex",
  "tempfile",
  "thiserror 2.0.21",
+ "vsm-core",
+ "vsm-fs_index",
 ]
 
 [[package]]
@@ -7537,6 +7545,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "vsm-core",
 ]
 
 [[package]]

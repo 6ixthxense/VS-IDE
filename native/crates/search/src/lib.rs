@@ -12,7 +12,6 @@
 mod engine;
 mod error;
 mod glob;
-mod locale;
 mod options;
 mod quick_open;
 mod replace;
@@ -25,7 +24,7 @@ pub use engine::{
 };
 pub use error::{Result, SearchError};
 pub use glob::{normalize_path_for_match, should_search_path, split_patterns, PathFilter};
-pub use locale::locale_compare;
+pub use vsm_core::paths::{locale_compare, normalize_lexical, should_skip_directory};
 pub use options::{build_pattern_source, build_search_regex, SearchOptions, MAX_RESULTS};
 pub use quick_open::{
     build_quick_open_items, find_fuzzy_match, find_fuzzy_match_greedy, get_relative_quick_open_path,
@@ -33,7 +32,7 @@ pub use quick_open::{
     QuickOpenResult, DEFAULT_LIMIT as QUICK_OPEN_DEFAULT_LIMIT,
 };
 pub use replace::{replace_in_workspace, ReplaceFailure, ReplaceReport};
-pub use scope::{normalize_lexical, should_skip_directory, SearchRequest};
+pub use scope::SearchRequest;
 pub use utils::{
     build_replace_preview, group_search_results, touch_search_history, SearchResultGroup,
     MAX_SEARCH_HISTORY,

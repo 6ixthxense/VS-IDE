@@ -10,7 +10,6 @@
 mod discovery;
 mod error;
 mod kill;
-mod locale;
 mod paths;
 pub mod problems;
 mod runner;

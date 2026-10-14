@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use super::types::{ProblemEntry, ProblemScanResult, ProblemSeverity, ProblemSource};
-use crate::locale::locale_compare;
+use vsm_core::paths::locale_compare;
 
 fn problem_key(entry: &ProblemEntry) -> String {
     [
