@@ -9,3 +9,12 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+vsm-core = { path = "../core" }
+ignore = "0.4.33"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
+thiserror = "2.0.21"
+log = "0.4.34"
+
+[dev-dependencies]
+tempfile = "3.27.0"

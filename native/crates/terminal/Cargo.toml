@@ -9,3 +9,11 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+alacritty_terminal = "0.25"
+portable-pty = "0.9"
+thiserror = "2"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
