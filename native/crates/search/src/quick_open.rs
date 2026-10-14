@@ -8,9 +8,8 @@
 use std::collections::{HashMap, HashSet};
 
 use nucleo_matcher::{Config, Matcher, Utf32Str};
+use vsm_core::paths::{locale_compare, strip_root_prefix};
 
-use crate::glob::strip_root_prefix;
-use crate::locale::locale_compare;
 
 /// Default number of results (`limit = 12` in the TS function).
 pub const DEFAULT_LIMIT: usize = 12;

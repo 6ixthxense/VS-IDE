@@ -1,7 +1,9 @@
 //! Git operations (port of the exported functions in `git.ts`, plus branches/log).
 
 use std::ffi::OsString;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+
+use vsm_core::paths::{names_eq, relative_to_root, CASE_INSENSITIVE_FS};
 
 use crate::cmd::{run, run_raw};
 use crate::model::{
@@ -70,13 +72,8 @@ fn caller_top(root: &Path, prefix: &str) -> Option<PathBuf> {
     Some(top)
 }
 
-#[cfg(windows)]
 fn names_equal(a: &str, b: &str) -> bool {
-    a.to_lowercase() == b.to_lowercase()
-}
-#[cfg(not(windows))]
-fn names_equal(a: &str, b: &str) -> bool {
-    a == b
+    names_eq(a.as_ref(), b.as_ref(), CASE_INSENSITIVE_FS)
 }
 
 /// Port of `getGitStatus`: absolute path -> [`GitFileStatus`].  Returns an empty map when
@@ -158,62 +155,6 @@ fn unstage_inner(root: &Path, paths: &[PathBuf]) -> Result<()> {
     run(root, args).map(|_| ())
 }
 
-/// Lexically normalise a path (no filesystem access).
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !out.pop() {
-                    out.push("..");
-                }
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
-fn component_eq(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
-    #[cfg(windows)]
-    {
-        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
-    }
-    #[cfg(not(windows))]
-    {
-        a == b
-    }
-}
-
-/// `file` relative to `root` (lexical; case-insensitive on Windows).  `None` if outside.
-fn relative_to(root: &Path, file: &Path) -> Option<PathBuf> {
-    let root = normalize(root);
-    let file = normalize(&if file.is_absolute() {
-        file.to_path_buf()
-    } else {
-        root.join(file)
-    });
-    let mut root_components = root.components();
-    let mut file_components = file.components();
-    loop {
-        match (root_components.next(), file_components.next()) {
-            (None, None) => return Some(PathBuf::new()),
-            (None, Some(first)) => {
-                let mut rest = PathBuf::from(first.as_os_str());
-                rest.extend(file_components.map(|c| c.as_os_str().to_owned()));
-                return Some(rest);
-            }
-            (Some(_), None) => return None,
-            (Some(r), Some(f)) => {
-                if !component_eq(r.as_os_str(), f.as_os_str()) {
-                    return None;
-                }
-            }
-        }
-    }
-}
-
 /// Canonical form of the nearest existing ancestor of `path` (with the missing tail re-appended).
 fn canonical_existing_prefix(path: &Path) -> PathBuf {
     let mut missing = Vec::new();
@@ -234,7 +175,7 @@ fn canonical_existing_prefix(path: &Path) -> PathBuf {
 
 fn has_git_component(path: &Path) -> bool {
     path.components()
-        .any(|c| component_eq(c.as_os_str(), std::ffi::OsStr::new(".git")))
+        .any(|c| names_eq(c.as_os_str(), std::ffi::OsStr::new(".git"), CASE_INSENSITIVE_FS))
 }
 
 /// Path with `/` separators, as git prints it.
@@ -260,7 +201,7 @@ pub fn discard(root: &Path, request: &DiffRequest) -> OperationResult {
 }
 
 fn discard_inner(root: &Path, request: &DiffRequest) -> Result<()> {
-    let Some(relative) = relative_to(root, &request.file_path) else {
+    let Some(relative) = relative_to_root(root, &request.file_path) else {
         return Err(GitError::InvalidArgument(
             "file is outside the repository root".into(),
         ));
@@ -279,7 +220,7 @@ fn discard_inner(root: &Path, request: &DiffRequest) -> Result<()> {
     // Symlink escape: the real parent directory must still be inside the real root.
     let real_root = canonical_existing_prefix(root);
     let real_parent = canonical_existing_prefix(absolute.parent().unwrap_or(root));
-    if relative_to(&real_root, &real_parent).is_none() {
+    if relative_to_root(&real_root, &real_parent).is_none() {
         return Err(GitError::InvalidArgument(
             "file resolves outside the repository root".into(),
         ));
@@ -436,7 +377,7 @@ pub fn diff(root: &Path, request: &DiffRequest) -> String {
 
 fn diff_inner(root: &Path, request: &DiffRequest) -> Result<String> {
     // A path outside the root must not be read from disk: show the placeholder instead.
-    let relative = relative_to(root, &request.file_path)
+    let relative = relative_to_root(root, &request.file_path)
         .ok_or_else(|| GitError::InvalidArgument("file is outside the repository root".into()))?;
     let relative_text = relative.to_string_lossy();
     let status = request.status.as_deref();
@@ -601,9 +542,9 @@ mod tests {
     #[test]
     fn relative_path_handling() {
         let root = Path::new("/a/b");
-        assert_eq!(relative_to(root, Path::new("/a/b/c/d.txt")), Some(PathBuf::from("c/d.txt")));
-        assert_eq!(relative_to(root, Path::new("c/../d.txt")), Some(PathBuf::from("d.txt")));
-        assert_eq!(relative_to(root, Path::new("/a/x.txt")), None);
+        assert_eq!(relative_to_root(root, Path::new("/a/b/c/d.txt")), Some(PathBuf::from("c/d.txt")));
+        assert_eq!(relative_to_root(root, Path::new("c/../d.txt")), Some(PathBuf::from("d.txt")));
+        assert_eq!(relative_to_root(root, Path::new("/a/x.txt")), None);
     }
 
     #[test]
@@ -617,16 +558,9 @@ mod tests {
     #[test]
     fn relative_to_folds_case_on_windows() {
         let root = Path::new("C:\\Work\\Repo");
-        assert_eq!(relative_to(root, Path::new("c:\\work\\repo\\Src\\A.rs")), Some(PathBuf::from("Src\\A.rs")));
-        assert_eq!(relative_to(root, Path::new("C:\\Work\\Other\\a.rs")), None);
+        assert_eq!(relative_to_root(root, Path::new("c:\\work\\repo\\Src\\A.rs")), Some(PathBuf::from("Src\\A.rs")));
+        assert_eq!(relative_to_root(root, Path::new("C:\\Work\\Other\\a.rs")), None);
         assert!(has_git_component(Path::new("sub\\.GIT\\config")));
-    }
-
-    #[test]
-    fn relative_to_is_component_wise() {
-        // "/a/bc" is not inside "/a/b"
-        assert_eq!(relative_to(Path::new("/a/b"), Path::new("/a/bc/x")), None);
-        assert_eq!(relative_to(Path::new("/a/b"), Path::new("/a/b")), Some(PathBuf::new()));
     }
 
     #[test]

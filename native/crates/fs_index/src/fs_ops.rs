@@ -14,6 +14,7 @@ use vsm_core::FileEntry;
 
 use crate::error::{FsIndexError, FsIndexResult};
 use crate::paths::{locale_compare, should_skip_entry_in_tree};
+use vsm_core::paths::names_eq;
 
 /// List the entries of `dir_path` for the file tree: hidden (dot) entries,
 /// `node_modules`, build output folders and `_temp_run*` are omitted;
@@ -138,9 +139,7 @@ fn is_directory_link(_meta: &fs::Metadata) -> bool {
 /// system, names the same file (a case-only rename on a case-insensitive
 /// volume, where `new.exists()` is true because it *is* `old`).
 fn is_case_only_rename(old: &Path, new: &Path) -> bool {
-    if old == new
-        || old.to_string_lossy().to_lowercase() != new.to_string_lossy().to_lowercase()
-    {
+    if old == new || !names_eq(old.as_os_str(), new.as_os_str(), true) {
         return false;
     }
     same_file(old, new)

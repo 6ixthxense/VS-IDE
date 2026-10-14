@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use super::parse::{parse_eslint_problems, parse_typescript_problems};
 use super::types::{ProblemEntry, ProblemScanResult};
-use crate::locale::locale_compare;
+use vsm_core::paths::locale_compare;
 use crate::timeutil::now_iso;
 
 struct ProcessResult {

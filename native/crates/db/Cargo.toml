@@ -9,6 +9,7 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+vsm-core = { path = "../core" }
 base64 = "0.23.1"
 calamine = { version = "0.36.1", features = ["dates"] }
 csv = "1.4.0"

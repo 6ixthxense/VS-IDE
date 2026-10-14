@@ -7,20 +7,6 @@ pub fn normalize_path_for_match(value: &str) -> String {
     value.replace('\\', "/")
 }
 
-/// Strip `root` from the front of `path` (plain string prefix, any separator style) but only
-/// at a path-separator boundary: `C:\workspace-old\a` is not under `C:\workspace`.
-/// Returns the remainder with leading separators removed.
-pub(crate) fn strip_root_prefix<'a>(path: &'a str, root: &str) -> Option<&'a str> {
-    if root.is_empty() || !path.starts_with(root) {
-        return None;
-    }
-    let rest = &path[root.len()..];
-    let boundary = rest.is_empty()
-        || root.ends_with(['/', '\\'])
-        || rest.starts_with(['/', '\\']);
-    boundary.then(|| rest.trim_start_matches(['/', '\\']))
-}
-
 /// Port of `splitPatterns`: split on newlines, commas and semicolons, trim, drop empties.
 pub fn split_patterns(value: &str) -> Vec<String> {
     value
@@ -128,15 +114,6 @@ mod tests {
         assert!(!should_search_path("docs/a.md", &exclude("dist/*, docs/*")));
         assert!(!should_search_path("dist/a.js", &exclude("dist/*, docs/*")));
         assert!(should_search_path("src/a.js", &exclude("dist/*, docs/*")));
-    }
-
-    #[test]
-    fn root_prefix_requires_a_separator_boundary() {
-        assert_eq!(strip_root_prefix("C:\\workspace\\src\\a.ts", "C:\\workspace"), Some("src\\a.ts"));
-        assert_eq!(strip_root_prefix("C:/workspace/src", "C:/workspace/"), Some("src"));
-        assert_eq!(strip_root_prefix("C:\\workspace", "C:\\workspace"), Some(""));
-        assert_eq!(strip_root_prefix("C:\\workspace-old\\a.ts", "C:\\workspace"), None);
-        assert_eq!(strip_root_prefix("/a/b", ""), None);
     }
 
     #[test]

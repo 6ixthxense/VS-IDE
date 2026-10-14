@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 
 use regex::Captures;
+use vsm_core::paths::strip_root_prefix;
 
 use crate::engine::SearchMatch;
-use crate::glob::{normalize_path_for_match, strip_root_prefix};
+use crate::glob::normalize_path_for_match;
 use crate::options::{build_search_regex, SearchOptions};
 
 pub const MAX_SEARCH_HISTORY: usize = 10;

@@ -1,7 +1,7 @@
 //! Port of `src/main/services/sqliteAdapter.ts` on top of `rusqlite`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use fallible_iterator::FallibleIterator;
 use rusqlite::types::{ToSql, ToSqlOutput, Value, ValueRef};
 use rusqlite::{Connection, InterruptHandle};
+use vsm_core::paths::{is_within, resolve_path};
 
 use crate::error::{DbError, Result};
 use crate::service::SqlAdapter;
@@ -72,26 +73,6 @@ fn parse_table_id(table_id: &str) -> (&str, &str) {
     }
 }
 
-/// Lexical `path.resolve` (no symlink resolution, like Node).
-fn resolve_path(path: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
-    };
-    let mut out = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
 /// Canonicalise `path`; when it does not exist yet, canonicalise the parent directory and
 /// re-append the file name (so a symlinked parent cannot be used to escape).
 fn canonicalize_lenient(path: &Path) -> PathBuf {
@@ -115,18 +96,6 @@ fn database_key(connection_id: &str) -> PathBuf {
         return PathBuf::from(MEMORY_DB);
     }
     canonicalize_lenient(&resolve_path(Path::new(raw)))
-}
-
-fn is_within(parent: &Path, target: &Path) -> bool {
-    #[cfg(windows)]
-    {
-        let lower = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
-        lower(target).starts_with(lower(parent))
-    }
-    #[cfg(not(windows))]
-    {
-        target.starts_with(parent)
-    }
 }
 
 #[derive(Debug, Clone)]
