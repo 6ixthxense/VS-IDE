@@ -9,3 +9,15 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+base64 = "0.23.1"
+calamine = { version = "0.36.1", features = ["dates"] }
+csv = "1.4.0"
+fallible-iterator = "0.3"
+rusqlite = { version = "0.40.2", features = ["bundled", "hooks"] }
+rust_xlsxwriter = "0.99.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+tempfile = "3.27.0"
