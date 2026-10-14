@@ -182,3 +182,140 @@ fn closing_the_workspace_stops_events() {
     assert!(drain(&rx).is_empty());
     drop(index); // must not hang or panic
 }
+
+/// Waits until a `FilesChanged` event arrives (events lag the index update).
+fn wait_for_files_changed(rx: &Receiver<IndexEvent>) {
+    wait_for("FilesChanged event", || drain(rx).contains(&IndexEvent::FilesChanged));
+}
+
+#[test]
+fn a_file_created_while_the_index_is_dirty_reports_files_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let index = watched_index();
+    index.set_root_path(Some(&root)); // never built: the index is dirty
+    let (_sub, rx) = index.subscribe_channel();
+
+    fs::write(root.join("new.ts"), "x").unwrap();
+    let mut events = Vec::new();
+    wait_for("FilesChanged for a create while dirty", || {
+        events.extend(drain(&rx));
+        events.contains(&IndexEvent::FilesChanged)
+    });
+    assert!(
+        !events.contains(&IndexEvent::FileModified(root.join("new.ts"))),
+        "a brand-new file must not be reported as modified: {events:?}"
+    );
+    assert!(indexed(&index, &root).contains(&root.join("new.ts")));
+}
+
+#[test]
+fn a_file_created_during_the_first_build_is_not_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for i in 0..30 {
+        for j in 0..30 {
+            let sub = root.join(format!("d{i}/e{j}"));
+            fs::create_dir_all(&sub).unwrap();
+            for k in 0..10 {
+                fs::write(sub.join(format!("f{k}.txt")), "").unwrap();
+            }
+        }
+    }
+    let index = watched_index();
+    index.set_root_path(Some(&root));
+
+    let builder = {
+        let (index, root) = (index.clone(), root.clone());
+        std::thread::spawn(move || index.get_files(&root).unwrap().len())
+    };
+    std::thread::sleep(Duration::from_millis(2));
+    let late = root.join("late.ts");
+    fs::write(&late, "x").unwrap();
+    builder.join().unwrap();
+
+    wait_for("late file to appear in the index", || indexed(&index, &root).contains(&late));
+}
+
+#[test]
+fn registering_thousands_of_directories_is_fast() {
+    // 50 x 100 = 5050 directories. Registration used to be quadratic.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for i in 0..50 {
+        for j in 0..100 {
+            fs::create_dir_all(root.join(format!("d{i}/e{j}"))).unwrap();
+        }
+    }
+    let index = watched_index();
+    let started = Instant::now();
+    index.set_root_path(Some(&root));
+    let elapsed = started.elapsed();
+    let limit = if cfg!(debug_assertions) {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_secs(1)
+    };
+    assert!(elapsed < limit, "set_root_path took {elapsed:?} (limit {limit:?})");
+
+    // And the deepest directories really are watched.
+    let file = root.join("d49/e99/x.txt");
+    index.get_files(&root).unwrap();
+    fs::write(&file, "").unwrap();
+    wait_for("file in the last registered directory", || indexed(&index, &root).contains(&file));
+}
+
+#[test]
+fn directories_that_become_unignored_get_watched() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    fs::create_dir(root.join("later")).unwrap();
+    fs::write(root.join("later").join("old.txt"), "").unwrap();
+    fs::write(root.join(".gitignore"), "later/\n").unwrap();
+
+    let index = watched_index();
+    assert!(!indexed(&index, &root).contains(&root.join("later/old.txt")));
+
+    fs::write(root.join(".gitignore"), "").unwrap();
+    wait_for("directory to appear after un-ignoring", || {
+        indexed(&index, &root).contains(&root.join("later/old.txt"))
+    });
+
+    let new = root.join("later").join("new.txt");
+    fs::write(&new, "").unwrap();
+    wait_for("file created in the newly watched directory", || indexed(&index, &root).contains(&new));
+}
+
+#[test]
+fn edits_to_git_info_exclude_are_noticed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    fs::create_dir_all(root.join(".git/info")).unwrap();
+    fs::write(root.join(".git/info/exclude"), "").unwrap();
+    fs::write(root.join("scratch.txt"), "").unwrap();
+
+    let index = watched_index();
+    assert!(indexed(&index, &root).contains(&root.join("scratch.txt")));
+
+    fs::write(root.join(".git/info/exclude"), "scratch.txt\n").unwrap();
+    wait_for("exclude rule to take effect", || {
+        !indexed(&index, &root).contains(&root.join("scratch.txt"))
+    });
+}
+
+#[test]
+fn ignore_files_inside_skipped_directories_do_not_invalidate() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+
+    let index = watched_index();
+    indexed(&index, &root);
+    let (_sub, rx) = index.subscribe_channel();
+
+    fs::write(root.join("node_modules/pkg/.gitignore"), "*\n").unwrap();
+    fs::write(root.join("marker.txt"), "").unwrap();
+    wait_for_files_changed(&rx);
+    assert!(!index.is_dirty(), "a .gitignore in node_modules must be ignored");
+    assert!(indexed(&index, &root).contains(&root.join("marker.txt")));
+}

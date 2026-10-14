@@ -349,6 +349,9 @@ fn process_batch(index: &FileIndex, backend: &mut Backend, ctx: &Context, batch:
     let mut modified: Vec<PathBuf> = Vec::new();
     let mut modified_seen: HashSet<PathBuf> = HashSet::new();
     let mut scanned_dirs: Vec<PathBuf> = Vec::new();
+    // Files that appeared in this batch: their follow-up write events are not
+    // reported as modifications.
+    let mut fresh: HashSet<PathBuf> = HashSet::new();
 
     for Change { path: raw_path, created_like } in &batch.changes {
         let created_like = *created_like;
@@ -375,8 +378,9 @@ fn process_batch(index: &FileIndex, backend: &mut Backend, ctx: &Context, batch:
             // Ignore rules changed: drop the matcher cache, rebuild lazily and
             // (re)watch directories that may just have become visible.
             ctx.rules.clear();
-            index.invalidate(None);
-            files_changed = true;
+            // Watch first, invalidate second: a rebuild triggered by the
+            // invalidation must not be able to finish before the new
+            // directories are watched.
             if PER_DIRECTORY_WATCHES {
                 match watch_tree(backend, &ctx.root, &ctx.rules) {
                     Ok(0) => {}
@@ -385,6 +389,8 @@ fn process_batch(index: &FileIndex, backend: &mut Backend, ctx: &Context, batch:
                 }
                 watch_git_info(backend, &ctx.rules);
             }
+            index.invalidate(None);
+            files_changed = true;
             continue;
         }
 
@@ -433,12 +439,14 @@ fn process_batch(index: &FileIndex, backend: &mut Backend, ctx: &Context, batch:
             }
             if created_like && index.is_dirty() {
                 needs_rebuild = true;
+                fresh.insert(path);
                 continue;
             }
             let added = created_like && index.add_file_silent(&path);
             if added {
                 files_changed = true;
-            } else if modified_seen.insert(path.clone()) {
+                fresh.insert(path);
+            } else if !fresh.contains(&path) && modified_seen.insert(path.clone()) {
                 // Content change, or a rename/create over an existing file
                 // (the usual "atomic save" pattern).
                 modified.push(path);
@@ -455,5 +463,45 @@ fn process_batch(index: &FileIndex, backend: &mut Backend, ctx: &Context, batch:
     }
     for path in modified {
         index.notify(&IndexEvent::FileModified(path));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::event::{CreateKind, DataChange, Flag, MetadataKind};
+
+    #[test]
+    fn rescan_flagged_events_and_errors_mark_the_batch() {
+        let mut batch = Batch::default();
+        batch.add_event(&Event::new(EventKind::Other).set_flag(Flag::Rescan));
+        assert!(batch.rescan);
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        assert!(Batch::from_notify(Err(notify::Error::generic("overflow"))).rescan);
+    }
+
+    #[test]
+    fn batches_dedupe_and_drop_noise() {
+        let path = PathBuf::from("/ws/a.txt");
+        let mut batch = Batch::default();
+        batch.add_event(&Event::new(EventKind::Create(CreateKind::File)).add_path(path.clone()));
+        batch.add_event(&Event::new(EventKind::Create(CreateKind::File)).add_path(path.clone()));
+        batch.add_event(
+            &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any))).add_path(path.clone()),
+        );
+        batch.add_event(
+            &Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))
+                .add_path(path.clone()),
+        );
+        batch.add_event(&Event::new(EventKind::Access(notify::event::AccessKind::Any)).add_path(path));
+        assert_eq!(batch.events, 5);
+        assert_eq!(batch.changes.len(), 2); // created + modified, once each
+        assert!(!batch.rescan);
+
+        let mut other = Batch::default();
+        other.add_event(&Event::new(EventKind::Remove(notify::event::RemoveKind::File)).add_path("/ws/b".into()));
+        batch.merge(other);
+        assert_eq!(batch.changes.len(), 3);
     }
 }

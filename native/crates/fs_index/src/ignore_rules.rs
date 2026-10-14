@@ -21,8 +21,9 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 fn add_ignore_file(builder: &mut GitignoreBuilder, path: &Path) -> bool {
     match builder.add(path) {
         None => true,
-        Some(ignore::Error::Partial(_)) => true,
-        Some(_) => false, // unreadable
+        // A parse error (one bad glob, or `Partial` for several) means some
+        // lines failed; the valid ones were still added.
+        Some(error) => !error.is_io(), // an I/O error means nothing was read
     }
 }
 
