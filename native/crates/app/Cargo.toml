@@ -1,0 +1,12 @@
+[package]
+name = "vsm-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vs-monitor"
+path = "src/main.rs"
+
+[dependencies]
