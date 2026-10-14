@@ -4,21 +4,20 @@
 //! The overlay is purely event driven: it re-ranks only when the query text
 //! changes and emits [`PaletteEvent`]s that the shell reacts to.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, px, App, Context, Entity, EventEmitter, KeyDownEvent, MouseButton,
-    ScrollHandle, SharedString, Subscription, Window,
+    ScrollHandle, SharedString, Subscription, Task, Window,
 };
 use gpui_component::{
     input::{Input, InputEvent, InputState},
     ActiveTheme as _, StyledExt as _,
 };
 
-use crate::{
-    commands::{Command, COMMANDS},
-    fuzzy,
-};
+use vsm_search::{build_quick_open_items, FuzzyMatcher};
+
+use crate::commands::{Command, COMMANDS};
 
 const MAX_RESULTS: usize = 50;
 
@@ -53,20 +52,25 @@ struct Item {
 pub struct Palette {
     kind: PaletteKind,
     input: Entity<InputState>,
-    /// All workspace files (relative, `/`-separated). Shared with the shell.
-    files: Rc<Vec<String>>,
+    /// All workspace files (relative, `/`-separated). Shared with the shell and
+    /// the background ranking task.
+    files: Arc<Vec<String>>,
     /// Open files, most recently used first; shown first for an empty query.
     recent: Vec<String>,
     items: Vec<Item>,
     selected: usize,
     scroll: ScrollHandle,
+    /// Bumped on every query change; results from older queries are dropped.
+    generation: u64,
+    /// In-flight background ranking (dropping it cancels the foreground half).
+    rank_task: Option<Task<()>>,
     _subscription: Subscription,
 }
 
 impl Palette {
     pub fn new(
         kind: PaletteKind,
-        files: Rc<Vec<String>>,
+        files: Arc<Vec<String>>,
         recent: Vec<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -95,10 +99,17 @@ impl Palette {
             items: Vec::new(),
             selected: 0,
             scroll: ScrollHandle::new(),
+            generation: 0,
+            rank_task: None,
             _subscription: subscription,
         };
         this.refresh(cx);
         this
+    }
+
+    /// Give keyboard focus back to the query input.
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |state, cx| state.focus(window, cx));
     }
 
     pub fn kind(&self) -> PaletteKind {
@@ -110,43 +121,63 @@ impl Palette {
     }
 
     /// Recompute the result list for the current query text.
+    ///
+    /// Commands and the empty Quick Open query are cheap and computed inline.
+    /// A Quick Open query ranks every workspace file with nucleo on the
+    /// background executor; a newer keystroke supersedes (and discards) the
+    /// result of an older one.
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.query(cx);
-        self.items = match self.kind {
-            PaletteKind::QuickOpen => self.rank_files(&query),
-            PaletteKind::Commands => rank_commands(&query),
-        };
+        self.generation += 1;
+        self.rank_task = None;
+        match self.kind {
+            PaletteKind::Commands => {
+                let items = rank_commands(&query);
+                self.set_items(items, cx);
+            }
+            PaletteKind::QuickOpen if query.is_empty() => {
+                let items = self.recent_items();
+                self.set_items(items, cx);
+            }
+            PaletteKind::QuickOpen => {
+                let generation = self.generation;
+                let files = self.files.clone();
+                let recent = self.recent.clone();
+                self.rank_task = Some(cx.spawn(async move |this, cx| {
+                    let items = cx
+                        .background_spawn(async move { rank_files(&files, &recent, &query) })
+                        .await;
+                    this.update(cx, |this, cx| {
+                        if this.generation == generation {
+                            this.set_items(items, cx);
+                        }
+                    })
+                    .ok();
+                }));
+            }
+        }
+    }
+
+    fn set_items(&mut self, items: Vec<Item>, cx: &mut Context<Self>) {
+        self.items = items;
         self.selected = 0;
         self.scroll.scroll_to_item(0);
         cx.notify();
     }
 
-    fn rank_files(&self, query: &str) -> Vec<Item> {
-        let to_item = |rel: &str| {
-            let (dir, name) = rel.rsplit_once('/').unwrap_or(("", rel));
-            Item {
-                label: name.to_string().into(),
-                detail: dir.to_string().into(),
-                payload: Payload::File(rel.to_string()),
+    /// Empty query: open files (most recent first), then the first files.
+    fn recent_items(&self) -> Vec<Item> {
+        let mut out: Vec<Item> = self.recent.iter().map(|r| file_item(r)).collect();
+        for rel in self.files.iter() {
+            if out.len() >= MAX_RESULTS {
+                break;
             }
-        };
-        if query.is_empty() {
-            let mut out: Vec<Item> = self.recent.iter().map(|r| to_item(r)).collect();
-            for rel in self.files.iter() {
-                if out.len() >= MAX_RESULTS {
-                    break;
-                }
-                if !self.recent.contains(rel) {
-                    out.push(to_item(rel));
-                }
+            if !self.recent.contains(rel) {
+                out.push(file_item(rel));
             }
-            out.truncate(MAX_RESULTS);
-            return out;
         }
-        fuzzy::rank(query, self.files.iter().map(String::as_str), MAX_RESULTS)
-            .into_iter()
-            .map(|ix| to_item(&self.files[ix]))
-            .collect()
+        out.truncate(MAX_RESULTS);
+        out
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -209,10 +240,37 @@ impl Palette {
     }
 }
 
+fn file_item(rel: &str) -> Item {
+    let (dir, name) = rel.rsplit_once('/').unwrap_or(("", rel));
+    Item {
+        label: name.to_string().into(),
+        detail: dir.to_string().into(),
+        payload: Payload::File(rel.to_string()),
+    }
+}
+
+/// Rank `files` for `query` (top [`MAX_RESULTS`]). Runs off the UI thread.
+fn rank_files(files: &[String], recent: &[String], query: &str) -> Vec<Item> {
+    build_quick_open_items(files, None, query, recent, MAX_RESULTS)
+        .items
+        .iter()
+        .map(|item| file_item(&item.path))
+        .collect()
+}
+
 fn rank_commands(query: &str) -> Vec<Item> {
-    fuzzy::rank(query, COMMANDS.iter().map(|c| c.title), MAX_RESULTS)
+    let mut matcher = FuzzyMatcher::new();
+    let mut scored: Vec<(i64, usize)> = COMMANDS
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, c)| matcher.find(c.title, query).map(|m| (m.score, ix)))
+        .collect();
+    // Stable sort: equal scores (including the empty query) keep list order.
+    scored.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
+    scored
         .into_iter()
-        .map(|ix| {
+        .take(MAX_RESULTS)
+        .map(|(_, ix)| {
             let c = &COMMANDS[ix];
             Item {
                 label: c.title.into(),
@@ -286,9 +344,9 @@ impl Render for Palette {
                     .shadow_lg()
                     .overflow_hidden()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                        this.on_key(event, cx)
-                    }))
+                    .capture_key_down(
+                        cx.listener(|this, event: &KeyDownEvent, _, cx| this.on_key(event, cx)),
+                    )
                     .child(
                         div()
                             .p_2()

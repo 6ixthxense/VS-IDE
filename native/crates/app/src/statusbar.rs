@@ -99,12 +99,9 @@ impl Render for StatusBar {
                 this.child(div().truncate().child(notice))
             });
 
-        let right = div()
-            .h_flex()
-            .gap_4()
-            .min_w_0()
-            .justify_end()
-            .when_some(self.doc.clone(), |this, doc| {
+        let right = div().h_flex().gap_4().min_w_0().justify_end().when_some(
+            self.doc.clone(),
+            |this, doc| {
                 this.child(
                     div()
                         .h_flex()
@@ -132,7 +129,8 @@ impl Render for StatusBar {
                     "LF"
                 }))
                 .child(div().flex_none().child(doc.language))
-            });
+            },
+        );
 
         div()
             .h_flex()

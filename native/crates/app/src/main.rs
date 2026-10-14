@@ -1,9 +1,9 @@
 //! VS-Monitor native IDE shell (Phase 0 spike + Phase 1 editor shell).
 //!
-//! Usage: `vs-monitor [FOLDER] [FILE...]` (FILE paths are relative to FOLDER).
+//! Usage: `vs-monitor [FOLDER] [FILE...]` (FILE paths are relative to FOLDER, or absolute inside it;
+//! anything outside FOLDER is refused).
 
 mod commands;
-mod fuzzy;
 mod language;
 mod palette;
 mod shell;
@@ -18,16 +18,16 @@ use gpui::{
 };
 use gpui_component::Root;
 
-use commands::{
-    CloseTab, CommandPalette, NextTab, PrevTab, QuickOpen, Quit, Save, ToggleSidebar,
-};
+use commands::{CloseTab, CommandPalette, NextTab, PrevTab, QuickOpen, Quit, Save, ToggleSidebar};
 use shell::Shell;
 use workspace::Workspace;
 
 fn main() {
     let mut args = std::env::args_os().skip(1);
-    let folder = args.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
-    let initial_files: Vec<String> = args.map(|a| a.to_string_lossy().replace('\\', "/")).collect();
+    let folder = args
+        .next()
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
+    let initial_files: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
 
     let workspace = match Workspace::open(&folder) {
         Ok(ws) => ws,
@@ -55,9 +55,7 @@ fn main() {
             };
             cx.open_window(options, move |window, cx| {
                 let shell = cx.new(|cx| Shell::new(workspace, window, cx));
-                for rel in &initial_files {
-                    shell.update(cx, |shell, cx| shell.open_file(rel, window, cx));
-                }
+                shell.update(cx, |shell, cx| shell.open_paths(initial_files, window, cx));
                 cx.new(|cx| Root::new(shell, window, cx))
             })
             .expect("failed to open the main window");

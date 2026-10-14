@@ -31,8 +31,11 @@ sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
   line numbers, indent guides, code folding, in-file search (Ctrl+F).
 - Tabs: open, switch (click, Ctrl+PageUp/PageDown, Ctrl+Tab), close (x or Ctrl+W),
   dirty dot. Closing a dirty tab asks to press close again to discard.
-- Ctrl+S saves (CRLF files keep CRLF). Binary / non-UTF-8 / >32 MB files are refused with a status message.
-- Quick Open (Ctrl+P): fuzzy file picker; empty query lists recently used tabs first.
+- Ctrl+S saves atomically (permissions and symlinks preserved; CRLF/LF by majority, BOM kept).
+  If the file changed on disk since it was opened, save is refused: press Ctrl+S again to overwrite,
+  or run "File: Reload from Disk".
+- Quit (Ctrl+Q / window close) with unsaved tabs asks you to repeat it within 10 s to discard. Binary / non-UTF-8 / >32 MB files are refused with a status message.
+- Quick Open (Ctrl+P): nucleo ranking (vsm-search) on the background executor; empty query lists recently used tabs first.
 - Command palette (Ctrl+Shift+P): fuzzy command list; several entries are stubs
   ("Not implemented yet") marking where backend crates plug in.
 - Status bar: workspace, file path, dirty marker, `Ln/Col`, EOL, language.
@@ -79,8 +82,8 @@ src/shell.rs      Shell view: activity bar, explorer, tabs, editor area, palette
 src/palette.rs    Quick Open / command palette overlay (event driven)
 src/statusbar.rs  status bar view (observes the active editor for Ln/Col)
 src/commands.rs   gpui actions + palette command list
-src/workspace.rs  ALL filesystem access (walk, read, write) - swap for vsm-fs_index
-src/fuzzy.rs      dependency-free fuzzy scorer - swap for vsm-search (nucleo)
+src/workspace.rs  ALL filesystem access: path normalisation, scan, decode/encode (EOL/BOM),
+                  atomic save with conflict detection (uses vsm-core / vsm-fs_index)
 src/language.rs   file name -> tree-sitter language id
 src/theme.rs      applies assets/vsm-dark.json
 ```

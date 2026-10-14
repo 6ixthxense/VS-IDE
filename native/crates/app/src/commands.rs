@@ -26,6 +26,8 @@ pub enum Command {
     QuickOpen,
     ToggleSidebar,
     RefreshExplorer,
+    ReloadFromDisk,
+    Quit,
     /// Placeholder for features owned by other crates (terminal, git, ...).
     Stub(&'static str),
 }
@@ -37,7 +39,11 @@ pub struct CommandInfo {
 }
 
 const fn info(title: &'static str, keys: &'static str, command: Command) -> CommandInfo {
-    CommandInfo { title, keys, command }
+    CommandInfo {
+        title,
+        keys,
+        command,
+    }
 }
 
 pub const COMMANDS: &[CommandInfo] = &[
@@ -47,11 +53,37 @@ pub const COMMANDS: &[CommandInfo] = &[
     info("View: Toggle Sidebar", "Ctrl+B", Command::ToggleSidebar),
     info("View: Next Editor", "Ctrl+PageDown", Command::NextTab),
     info("View: Previous Editor", "Ctrl+PageUp", Command::PrevTab),
+    info("File: Reload from Disk", "", Command::ReloadFromDisk),
+    info("File: Quit", "Ctrl+Q", Command::Quit),
     info("Explorer: Refresh", "", Command::RefreshExplorer),
-    info("Terminal: Toggle Panel", "", Command::Stub("Terminal panel (vsm-terminal)")),
-    info("Search: Find in Files", "", Command::Stub("Search (vsm-search)")),
-    info("Git: Show Source Control", "", Command::Stub("Source control (vsm-git)")),
-    info("System: Show Monitor", "", Command::Stub("System monitor (vsm-sysmon)")),
-    info("Database: Open Connection", "", Command::Stub("Database (vsm-db)")),
-    info("Problems: Show Panel", "", Command::Stub("Problems (vsm-tasks / vsm-lsp)")),
+    info(
+        "Terminal: Toggle Panel",
+        "",
+        Command::Stub("Terminal panel (vsm-terminal)"),
+    ),
+    info(
+        "Search: Find in Files",
+        "",
+        Command::Stub("Search (vsm-search)"),
+    ),
+    info(
+        "Git: Show Source Control",
+        "",
+        Command::Stub("Source control (vsm-git)"),
+    ),
+    info(
+        "System: Show Monitor",
+        "",
+        Command::Stub("System monitor (vsm-sysmon)"),
+    ),
+    info(
+        "Database: Open Connection",
+        "",
+        Command::Stub("Database (vsm-db)"),
+    ),
+    info(
+        "Problems: Show Panel",
+        "",
+        Command::Stub("Problems (vsm-tasks / vsm-lsp)"),
+    ),
 ];
